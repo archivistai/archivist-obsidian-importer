@@ -21708,6 +21708,7 @@ class ImportView extends obsidian.ItemView {
         this.importProgress = { current: 0, total: 0 };
         this.isCreatingLinks = false;
         this.linkProgress = { current: 0, total: 0 };
+        this.isCreatingCampaign = false;
         // Link tracking: map vault title -> { id, type }
         this.createdRecords = new Map();
         // Pending links to materialize after import
@@ -21736,18 +21737,23 @@ class ImportView extends obsidian.ItemView {
         }
     }
     async createNewCampaign() {
-        if (!this.plugin.settings.apiKey)
+        if (!this.plugin.settings.apiKey || this.isCreatingCampaign)
             return;
         const title = this.app.vault.getName();
+        this.isCreatingCampaign = true;
+        this.render();
         try {
             const created = await createCampaign({ apiKey: this.plugin.settings.apiKey }, title);
             // refresh list and select created
             await this.refreshCampaigns();
             this.selectedCampaignId = created.id;
-            this.render();
         }
         catch (e) {
             new obsidian.Notice(`Failed to create campaign: ${e.message}`);
+        }
+        finally {
+            this.isCreatingCampaign = false;
+            this.render();
         }
     }
     async loadVaultFiles() {
@@ -21794,10 +21800,20 @@ class ImportView extends obsidian.ItemView {
             campControls.createEl('div', { text: 'No campaigns found.', cls: 'archivist-no-campaigns' });
         }
         const btnGroup = campControls.createEl('div', { cls: 'archivist-button-group' });
-        const createBtn = btnGroup.createEl('button', { text: 'Create New Campaign', cls: 'archivist-create-btn' });
+        const createBtn = btnGroup.createEl('button', { cls: 'archivist-create-btn' });
+        if (this.isCreatingCampaign) {
+            createBtn.setText('Creating...');
+            createBtn.disabled = true;
+            createBtn.classList.add('archivist-btn-loading');
+        }
+        else {
+            createBtn.setText('Create New Campaign');
+            createBtn.disabled = false;
+        }
         createBtn.onclick = () => this.createNewCampaign();
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
         refreshBtn.innerHTML = '↻';
+        refreshBtn.disabled = this.isCreatingCampaign;
         refreshBtn.onclick = () => this.refreshCampaigns();
         const campaignSelected = !!this.selectedCampaignId;
         // Files table
