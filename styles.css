@@ -1,0 +1,18 @@
+.archivist-section {
+    margin: 1rem 0;
+}
+
+.archivist-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.archivist-table th,
+.archivist-table td {
+    border: 1px solid var(--background-modifier-border);
+    padding: 4px 6px;
+}
+
+.archivist-table th {
+    background: var(--background-modifier-form-field);
+}
