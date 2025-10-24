@@ -2,6 +2,68 @@
     margin: 1rem 0;
 }
 
+.archivist-campaign-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.archivist-campaign-select {
+    flex: 1;
+    padding-left: 0.5rem;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+}
+
+.archivist-no-campaigns {
+    flex: 1;
+    padding: 0.5rem;
+    color: var(--text-muted);
+}
+
+.archivist-button-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.archivist-create-btn {
+    padding: 0.5rem 1rem;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.archivist-create-btn:hover:not(:disabled) {
+    background: var(--interactive-accent-hover);
+}
+
+.archivist-btn-loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.archivist-refresh-btn {
+    padding: 0.5rem;
+    width: 2.5rem;
+    background: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    line-height: 1;
+    color: var(--text-normal);
+}
+
+.archivist-refresh-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
 .archivist-table {
     width: 100%;
     border-collapse: collapse;
@@ -15,4 +77,57 @@
 
 .archivist-table th {
     background: var(--background-modifier-form-field);
+}
+
+.archivist-table th input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.archivist-table td input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.archivist-import-btn {
+    padding: 0.75rem 1.5rem;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 1rem;
+}
+
+.archivist-import-btn:hover:not(:disabled) {
+    background: var(--interactive-accent-hover);
+}
+
+.archivist-import-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.archivist-progress-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.archivist-progress-text {
+    font-weight: 500;
+    color: var(--text-normal);
+}
+
+.archivist-progress-bar {
+    width: 100%;
+    height: 24px;
+    background: var(--background-modifier-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.archivist-progress-fill {
+    height: 100%;
+    background: var(--interactive-accent);
+    transition: width 0.3s ease;
 }

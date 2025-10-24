@@ -2,11 +2,12 @@ import type { Campaign } from './types';
 
 export interface ApiConfig {
     apiKey: string;
-    baseUrl: string;
 }
 
+const API_BASE_URL = 'https://api.myarchivist.ai';
+
 async function apiFetch<T>(config: ApiConfig, path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${config.baseUrl}${path}`, {
+    const res = await fetch(`${API_BASE_URL}${path}`, {
         method: 'GET',
         headers: {
             'Content-Type': 'application/json',
@@ -77,4 +78,17 @@ export async function createLore(config: ApiConfig, payload: {
     size?: number;
 }) {
     return apiFetch(config, `/v1/lore`, { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export async function createCampaignLink(config: ApiConfig, campaignId: string, payload: {
+    from_id: string;
+    from_type: 'Character' | 'Item' | 'Location' | 'Faction';
+    to_id: string;
+    to_type: 'Character' | 'Item' | 'Location' | 'Faction';
+    alias: string;
+}) {
+    return apiFetch(config, `/v1/campaigns/${encodeURIComponent(campaignId)}/links`, {
+        method: 'POST',
+        body: JSON.stringify({ ...payload, campaign_id: campaignId })
+    });
 }
