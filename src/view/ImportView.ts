@@ -141,7 +141,7 @@ export default class ImportView extends ItemView {
         }
         createBtn.onclick = () => this.createNewCampaign();
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
-        refreshBtn.innerHTML = '↻';
+        refreshBtn.setText('↻');
         refreshBtn.disabled = this.isCreatingCampaign;
         refreshBtn.onclick = () => this.refreshCampaigns();
 
@@ -245,24 +245,22 @@ export default class ImportView extends ItemView {
                 text: `Importing ${this.importProgress.current} of ${this.importProgress.total}...`,
                 cls: 'archivist-progress-text'
             });
-            const progressBar = progressContainer.createEl('div', { cls: 'archivist-progress-bar' });
-            const progressFill = progressBar.createEl('div', { cls: 'archivist-progress-fill' });
-            const percent = this.importProgress.total > 0
-                ? (this.importProgress.current / this.importProgress.total) * 100
+            const progressBar = new ProgressBarComponent(progressContainer);
+            const value = this.importProgress.total > 0
+                ? (this.importProgress.current / this.importProgress.total)
                 : 0;
-            progressFill.style.width = `${percent}%`;
+            progressBar.setValue(value);
         } else if (this.isCreatingLinks) {
             const progressContainer = importSection.createEl('div', { cls: 'archivist-progress-container' });
             progressContainer.createEl('div', {
                 text: `Creating links ${this.linkProgress.current} of ${this.linkProgress.total}...`,
                 cls: 'archivist-progress-text'
             });
-            const progressBar = progressContainer.createEl('div', { cls: 'archivist-progress-bar' });
-            const progressFill = progressBar.createEl('div', { cls: 'archivist-progress-fill' });
-            const percent = this.linkProgress.total > 0
-                ? (this.linkProgress.current / this.linkProgress.total) * 100
+            const progressBar = new ProgressBarComponent(progressContainer);
+            const value = this.linkProgress.total > 0
+                ? (this.linkProgress.current / this.linkProgress.total)
                 : 0;
-            progressFill.style.width = `${percent}%`;
+            progressBar.setValue(value);
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import Selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);

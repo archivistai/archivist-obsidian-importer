@@ -13,13 +13,13 @@ export default class ArchivistImporterPlugin extends Plugin {
             (leaf: WorkspaceLeaf) => new ImportView(leaf, this)
         );
 
-        this.addRibbonIcon('upload', 'Open Archivist Importer', () => {
+        this.addRibbonIcon('upload', 'Open import view', () => {
             this.activateView();
         });
 
         this.addCommand({
             id: 'open-archivist-importer',
-            name: 'Open Archivist Importer',
+            name: 'Open import view',
             callback: () => this.activateView()
         });
 
