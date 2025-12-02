@@ -32,23 +32,25 @@ Import selected Obsidian vault files into your Archivist campaigns.
 4. **Configure API Key:**
    - Go to Settings → Archivist Importer
    - Enter your Archivist API key
-   - (Optional) Change the base URL if using a custom endpoint
 
 5. **Use the plugin:**
    - Click the upload icon in the left ribbon, or
-   - Use Command Palette (Cmd/Ctrl + P) → "Open Archivist Importer"
+   - Use Command Palette (Cmd/Ctrl + P) → "Open import view"
 
 ## Quick Copy Script
 
+Before running the script below, run `npm install` once in this repository so the Rollup build has its dependencies. The script assumes you run it from the plugin repo folder (where `package.json` lives) so that `npm run build` can find the project.
+
 ```bash
 #!/bin/bash
+set -euo pipefail
 # Quick deploy script - edit the VAULT_PATH to your vault location
 VAULT_PATH="/path/to/your/vault"
 PLUGIN_DIR="$VAULT_PATH/.obsidian/plugins/archivist-importer"
 
-npm run build && \
-mkdir -p "$PLUGIN_DIR" && \
-cp manifest.json main.js styles.css "$PLUGIN_DIR/" && \
+npm run build
+mkdir -p "$PLUGIN_DIR"
+cp manifest.json main.js styles.css "$PLUGIN_DIR/"
 echo "✅ Plugin copied to $PLUGIN_DIR"
 ```
 
