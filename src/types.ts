@@ -19,8 +19,3 @@ export interface ImportRowState {
     status?: 'queued' | 'uploading' | 'done' | 'error';
     errorMessage?: string;
 }
-
-export interface ArchivistSettings {
-    apiKey: string;
-    baseUrl: string;
-}

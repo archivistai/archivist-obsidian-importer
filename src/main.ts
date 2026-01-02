@@ -5,7 +5,11 @@ import ImportView, { VIEW_TYPE_ARCHIVIST } from './view/ImportView';
 export default class ArchivistImporterPlugin extends Plugin {
     settings!: ArchivistSettings;
 
-    async onload() {
+    onload(): void {
+        void this.onloadAsync();
+    }
+
+    private async onloadAsync(): Promise<void> {
         await this.loadSettings();
 
         this.registerView(
@@ -14,19 +18,21 @@ export default class ArchivistImporterPlugin extends Plugin {
         );
 
         this.addRibbonIcon('upload', 'Open import view', () => {
-            this.activateView();
+            void this.activateView().catch((err: unknown) => console.error(err));
         });
 
         this.addCommand({
-            id: 'open-archivist-importer',
+            id: 'open-import-view',
             name: 'Open import view',
-            callback: () => this.activateView()
+            callback: () => {
+                void this.activateView().catch((err: unknown) => console.error(err));
+            }
         });
 
         this.addSettingTab(new ArchivistSettingTab(this.app, this));
     }
 
-    async onunload() { }
+    onunload(): void { }
 
     async activateView() {
         const { workspace } = this.app;

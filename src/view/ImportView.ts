@@ -1,9 +1,9 @@
-import { ItemView, Notice, ProgressBarComponent, TFile, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Notice, ProgressBarComponent, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import type { Campaign, DocumentKind, ImportRowState } from '../types';
 import type ArchivistImporterPlugin from '../main';
 import { getLoreSubtypeOptions } from '../loreSubtypes';
 import { listCampaigns, createCampaign, createCharacter, createFaction, createItem, createLocation, createLore, createCampaignLink } from '../api';
-import { estimateTokens, splitContentIntoChunks } from '../chunker';
+import { splitContentIntoChunks } from '../chunker';
 import { sanitizeMarkdown } from '../markdownCleaner';
 
 export const VIEW_TYPE_ARCHIVIST = 'archivist-importer-view';
@@ -37,6 +37,7 @@ export default class ImportView extends ItemView {
     private createdRecords: Map<string, { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }> = new Map();
     // Pending links to materialize after import
     private pendingLinks: Array<{ fromTitle: string; fromType: 'Character' | 'Item' | 'Location' | 'Faction'; links: Array<{ target: string; alias: string }> }> = [];
+    private readonly nonLoreTypes = ['Character', 'Item', 'Location', 'Faction'] as const;
 
     constructor(leaf: WorkspaceLeaf, plugin: ArchivistImporterPlugin) {
         super(leaf);
@@ -59,8 +60,8 @@ export default class ImportView extends ItemView {
             this.campaigns = data?.data || [];
             this.selectedCampaignId = this.campaigns[0]?.id ?? null;
             this.render();
-        } catch (e: any) {
-            new Notice(`Failed to load campaigns: ${e.message}`);
+        } catch (e: unknown) {
+            new Notice(`Failed to load campaigns: ${getErrorMessage(e)}`);
         }
     }
 
@@ -74,15 +75,15 @@ export default class ImportView extends ItemView {
             // refresh list and select created
             await this.refreshCampaigns();
             this.selectedCampaignId = created.id;
-        } catch (e: any) {
-            new Notice(`Failed to create campaign: ${e.message}`);
+        } catch (e: unknown) {
+            new Notice(`Failed to create campaign: ${getErrorMessage(e)}`);
         } finally {
             this.isCreatingCampaign = false;
             this.render();
         }
     }
 
-    async loadVaultFiles() {
+    loadVaultFiles(): void {
         const files = this.app.vault.getMarkdownFiles();
         const defaultSubtype = getLoreSubtypeOptions()[0]?.value || 'lore';
         this.rows = files.map((f) => ({
@@ -100,8 +101,7 @@ export default class ImportView extends ItemView {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
 
-        const header = container.createEl('div');
-        header.createEl('h3', { text: 'Archivist Importer' });
+        new Setting(container).setName('Archivist importer').setHeading();
 
         const banner = container.createEl('div');
         if (!this.plugin.settings.apiKey) {
@@ -111,7 +111,7 @@ export default class ImportView extends ItemView {
 
         // Campaign controls
         const campSection = container.createEl('div', { cls: 'archivist-section' });
-        campSection.createEl('h4', { text: 'Campaign' });
+        new Setting(campSection).setName('Campaign').setHeading();
 
         const campControls = campSection.createEl('div', { cls: 'archivist-campaign-controls' });
 
@@ -136,20 +136,24 @@ export default class ImportView extends ItemView {
             createBtn.disabled = true;
             createBtn.classList.add('archivist-btn-loading');
         } else {
-            createBtn.setText('Create New Campaign');
+            createBtn.setText('Create new campaign');
             createBtn.disabled = false;
         }
-        createBtn.onclick = () => this.createNewCampaign();
+        createBtn.onclick = () => {
+            void this.createNewCampaign().catch((err: unknown) => console.error(err));
+        };
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
         refreshBtn.setText('↻');
         refreshBtn.disabled = this.isCreatingCampaign;
-        refreshBtn.onclick = () => this.refreshCampaigns();
+        refreshBtn.onclick = () => {
+            void this.refreshCampaigns().catch((err: unknown) => console.error(err));
+        };
 
         const campaignSelected = !!this.selectedCampaignId;
 
         // Files table
         const filesSection = container.createEl('div', { cls: 'archivist-section' });
-        filesSection.createEl('h4', { text: 'Vault Files' });
+        new Setting(filesSection).setName('Vault files').setHeading();
 
         const table = filesSection.createEl('table', { cls: 'archivist-table' });
         const thead = table.createEl('thead');
@@ -168,7 +172,7 @@ export default class ImportView extends ItemView {
             this.render();
         };
 
-        ['Title', 'Path', 'Size', 'Type', 'Lore Subtype'].forEach((h) => headRow.createEl('th', { text: h }));
+        ['Title', 'Path', 'Size', 'Type', 'Lore subtype'].forEach((h) => headRow.createEl('th', { text: h }));
 
         const tbody = table.createEl('tbody');
 
@@ -264,7 +268,9 @@ export default class ImportView extends ItemView {
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import Selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
-            importBtn.onclick = () => this.importSelected();
+            importBtn.onclick = () => {
+                void this.importSelected().catch((err: unknown) => console.error(err));
+            };
         }
     }
 
@@ -298,7 +304,7 @@ export default class ImportView extends ItemView {
                 const content = await sanitizeMarkdown(raw);
 
                 if (row.kind === 'Player Character' || row.kind === 'NPC') {
-                    const created: any = await createCharacter(cfg, {
+                    const created = await createCharacter(cfg, {
                         campaign_id: this.selectedCampaignId,
                         character_name: row.title,
                         description: content,
@@ -308,17 +314,17 @@ export default class ImportView extends ItemView {
                     this.createdRecords.set(row.title, { id: created.id, type: fromType });
                     if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
                 } else if (row.kind === 'Item') {
-                    const created: any = await createItem(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
+                    const created = await createItem(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                     const fromType = 'Item';
                     this.createdRecords.set(row.title, { id: created.id, type: fromType });
                     if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
                 } else if (row.kind === 'Location') {
-                    const created: any = await createLocation(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
+                    const created = await createLocation(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                     const fromType = 'Location';
                     this.createdRecords.set(row.title, { id: created.id, type: fromType });
                     if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
                 } else if (row.kind === 'Faction') {
-                    const created: any = await createFaction(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
+                    const created = await createFaction(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                     const fromType = 'Faction';
                     this.createdRecords.set(row.title, { id: created.id, type: fromType });
                     if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
@@ -352,9 +358,9 @@ export default class ImportView extends ItemView {
                     }
                 }
                 row.status = 'done';
-            } catch (e: any) {
+            } catch (e: unknown) {
                 row.status = 'error';
-                row.errorMessage = e.message || String(e);
+                row.errorMessage = getErrorMessage(e);
                 new Notice(`Failed importing ${row.title}: ${row.errorMessage}`);
             }
         }
@@ -366,7 +372,7 @@ export default class ImportView extends ItemView {
         try {
             if (this.pendingLinks.length && this.selectedCampaignId) {
                 // Calculate total potential links
-                const linksToCreate: Array<{ from: any; targetRec: any; alias: string }> = [];
+                const linksToCreate: Array<{ from: { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }; targetRec: { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }; alias: string }> = [];
                 const createdLinks = new Set<string>(); // Track "fromId:toId" to dedupe
 
                 for (const entry of this.pendingLinks) {
@@ -383,7 +389,8 @@ export default class ImportView extends ItemView {
                         const targetRec = this.createdRecords.get(trimmedTarget);
                         if (!targetRec) continue;
 
-                        const nonLore = (t: any) => t === 'Character' || t === 'Item' || t === 'Location' || t === 'Faction';
+                        const nonLore = (t: string): t is (typeof this.nonLoreTypes)[number] =>
+                            (this.nonLoreTypes as readonly string[]).includes(t);
                         if (!nonLore(from.type) || !nonLore(targetRec.type)) continue;
                         if (from.id === targetRec.id) continue;
 
@@ -418,12 +425,22 @@ export default class ImportView extends ItemView {
                     this.isCreatingLinks = false;
                 }
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             this.isCreatingLinks = false;
-            new Notice(`Link creation failed: ${e.message}`);
+            new Notice(`Link creation failed: ${getErrorMessage(e)}`);
         }
 
         this.render();
         new Notice(`Import complete! ${selected.length} file(s) processed.`);
+    }
+}
+
+function getErrorMessage(e: unknown): string {
+    if (e instanceof Error) return e.message;
+    if (typeof e === 'string') return e;
+    try {
+        return JSON.stringify(e);
+    } catch {
+        return String(e);
     }
 }

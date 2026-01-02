@@ -13,10 +13,10 @@ class ArchivistSettingTab extends obsidian.PluginSettingTab {
     display() {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.createEl('h2', { text: 'Archivist Importer Settings' });
+        new obsidian.Setting(containerEl).setName('Archivist importer').setHeading();
         new obsidian.Setting(containerEl)
-            .setName('API Key')
-            .setDesc('Your Archivist API Key (stored locally in this vault).')
+            .setName('API key')
+            .setDesc('Your Archivist API key (stored locally in this vault).')
             .addText((text) => {
             text.inputEl.type = 'password';
             text.setPlaceholder('archivist_...')
@@ -80,50 +80,72 @@ const LORE_SUBTYPES = {
 const getLoreSubtypeOptions = () => Object.entries(LORE_SUBTYPES).map(([value, label]) => ({ value, label }));
 
 const API_BASE_URL = 'https://api.myarchivist.ai';
-async function apiFetch(config, path, init) {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-        method: 'GET',
+function getResponseBody(res) {
+    // `requestUrl` may populate `json` (object) and/or `text` (string).
+    if (res.json !== undefined)
+        return res.json;
+    if (typeof res.text === 'string' && res.text.length > 0) {
+        try {
+            return JSON.parse(res.text);
+        }
+        catch (_a) {
+            return res.text;
+        }
+    }
+    return undefined;
+}
+async function apiRequest(config, path, init = {}) {
+    var _a, _b;
+    const url = `${API_BASE_URL}${path}`;
+    const res = await obsidian.requestUrl({
+        url,
+        method: (_a = init.method) !== null && _a !== void 0 ? _a : 'GET',
         headers: {
             'Content-Type': 'application/json',
-            'x-api-key': config.apiKey
+            'x-api-key': config.apiKey,
+            ...((_b = init.headers) !== null && _b !== void 0 ? _b : {})
         },
-        ...init
+        body: init.body,
+        contentType: init.contentType,
+        throw: false
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`${res.status} ${res.statusText} - ${text}`);
+    if (res.status < 200 || res.status >= 300) {
+        const body = getResponseBody(res);
+        const suffix = typeof body === 'string' ? body : JSON.stringify(body !== null && body !== void 0 ? body : '');
+        throw new Error(`${res.status} - ${suffix}`);
     }
-    if (res.status === 204)
-        return undefined;
-    return (await res.json());
+    const body = getResponseBody(res);
+    return body;
 }
-async function listCampaigns(config) { return apiFetch(config, `/v1/campaigns?page=1&size=100`); }
+async function listCampaigns(config) {
+    return apiRequest(config, `/v1/campaigns?page=1&size=100`);
+}
 async function createCampaign(config, title) {
-    return apiFetch(config, `/v1/campaigns`, {
+    return apiRequest(config, `/v1/campaigns`, {
         method: 'POST',
         body: JSON.stringify({ title })
     });
 }
 async function createCharacter(config, payload) {
-    return apiFetch(config, `/v1/characters`, {
+    return apiRequest(config, `/v1/characters`, {
         method: 'POST',
         body: JSON.stringify(payload)
     });
 }
 async function createItem(config, payload) {
-    return apiFetch(config, `/v1/items`, { method: 'POST', body: JSON.stringify(payload) });
+    return apiRequest(config, `/v1/items`, { method: 'POST', body: JSON.stringify(payload) });
 }
 async function createLocation(config, payload) {
-    return apiFetch(config, `/v1/locations`, { method: 'POST', body: JSON.stringify(payload) });
+    return apiRequest(config, `/v1/locations`, { method: 'POST', body: JSON.stringify(payload) });
 }
 async function createFaction(config, payload) {
-    return apiFetch(config, `/v1/factions`, { method: 'POST', body: JSON.stringify(payload) });
+    return apiRequest(config, `/v1/factions`, { method: 'POST', body: JSON.stringify(payload) });
 }
 async function createLore(config, payload) {
-    return apiFetch(config, `/v1/lore`, { method: 'POST', body: JSON.stringify(payload) });
+    return apiRequest(config, `/v1/lore`, { method: 'POST', body: JSON.stringify(payload) });
 }
 async function createCampaignLink(config, campaignId, payload) {
-    return apiFetch(config, `/v1/campaigns/${encodeURIComponent(campaignId)}/links`, {
+    return apiRequest(config, `/v1/campaigns/${encodeURIComponent(campaignId)}/links`, {
         method: 'POST',
         body: JSON.stringify({ ...payload, campaign_id: campaignId })
     });
@@ -21585,14 +21607,19 @@ function remarkFrontmatter(options) {
   toMarkdownExtensions.push(frontmatterToMarkdown(settings));
 }
 
+function isParentNode(node) {
+    return Array.isArray(node.children);
+}
+function isTextNode(node) {
+    return node.type === 'text' && typeof node.value === 'string';
+}
 function remarkCleanObsidian() {
     return (tree) => {
         visit(tree, (node, index, parent) => {
-            var _a, _b;
-            if (!parent || index == null)
+            if (!parent || index == null || !isParentNode(parent))
                 return;
             // Remove dataview/dataviewjs code blocks
-            if (node.type === 'code' && node.lang && /^(dataview|dataviewjs)$/i.test(node.lang)) {
+            if (node.type === 'code' && typeof node.lang === 'string' && /^(dataview|dataviewjs)$/i.test(node.lang)) {
                 parent.children.splice(index, 1);
                 return [SKIP, index];
             }
@@ -21603,25 +21630,27 @@ function remarkCleanObsidian() {
             }
             // Unwrap callouts: blockquotes that start with [!TYPE]
             if (node.type === 'blockquote') {
-                const first = (_a = node.children) === null || _a === void 0 ? void 0 : _a[0];
-                const firstText = (first === null || first === void 0 ? void 0 : first.type) === 'paragraph'
-                    ? (_b = first.children) === null || _b === void 0 ? void 0 : _b.map((c) => c.value || '').join('')
+                const children = isParentNode(node) ? node.children : undefined;
+                const first = children === null || children === void 0 ? void 0 : children[0];
+                const firstText = (first === null || first === void 0 ? void 0 : first.type) === 'paragraph' && isParentNode(first)
+                    ? first.children.map((c) => (isTextNode(c) ? c.value : '')).join('')
                     : '';
-                if (/^\s*\[\![A-Za-z].*?\]/.test(firstText || '')) {
-                    if ((first === null || first === void 0 ? void 0 : first.type) === 'paragraph') {
-                        first.children = first.children.filter((c) => typeof c.value !== 'string' || !/^\s*\[\![A-Za-z].*?\]\s*/.test(c.value));
-                        if (first.children.length && typeof first.children[0].value === 'string') {
-                            first.children[0].value = first.children[0].value.replace(/^\s*\[\![A-Za-z].*?\]\s*/, '');
+                if (/^\s*\[![A-Za-z].*?\]/.test(firstText || '')) {
+                    if ((first === null || first === void 0 ? void 0 : first.type) === 'paragraph' && isParentNode(first)) {
+                        first.children = first.children.filter((c) => !(isTextNode(c) && /^\s*\[![A-Za-z].*?\]\s*/.test(c.value)));
+                        if (first.children.length && isTextNode(first.children[0])) {
+                            first.children[0].value = first.children[0].value.replace(/^\s*\[![A-Za-z].*?\]\s*/, '');
                         }
                     }
-                    parent.children.splice(index, 1, ...node.children);
+                    if (isParentNode(node))
+                        parent.children.splice(index, 1, ...node.children);
                     return [SKIP, index];
                 }
             }
             // Drop inline-field paragraphs like "key:: value"
             if (node.type === 'paragraph') {
-                const txt = (node.children || [])
-                    .map((c) => (typeof c.value === 'string' ? c.value : ''))
+                const txt = (isParentNode(node) ? node.children : [])
+                    .map((c) => (isTextNode(c) ? c.value : ''))
                     .join('')
                     .trim();
                 if (/^[A-Za-z0-9_\-\s]+::/.test(txt)) {
@@ -21635,8 +21664,8 @@ function remarkCleanObsidian() {
             }
             // Remove Obsidian comments %% ... %% (as paragraphs)
             if (node.type === 'paragraph') {
-                const raw = (node.children || [])
-                    .map((c) => (typeof c.value === 'string' ? c.value : ''))
+                const raw = (isParentNode(node) ? node.children : [])
+                    .map((c) => (isTextNode(c) ? c.value : ''))
                     .join('');
                 if (/%%[\s\S]*%%/.test(raw)) {
                     const cleaned = raw.replace(/%%[\s\S]*?%%/g, '').trim();
@@ -21645,7 +21674,8 @@ function remarkCleanObsidian() {
                         return [SKIP, index];
                     }
                     else {
-                        node.children = [{ type: 'text', value: cleaned }];
+                        if (isParentNode(node))
+                            node.children = [{ type: 'text', value: cleaned }];
                     }
                 }
             }
@@ -21661,7 +21691,7 @@ function prefilterMarkdown(md) {
         .replace(/!\[\[[^\]]+\]\]/g, '')
         .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, '$2')
         .replace(/\[\[([^\]]+)\]\]/g, '$1')
-        .replace(/^>\s*\[\![^\]]+\]\s*/gm, '> ')
+        .replace(/^>\s*\[![^\]]+\]\s*/gm, '> ')
         .replace(/!\[[^\]]*\]\([^)]\)/g, '');
 }
 async function cleanObsidianMarkdown(md) {
@@ -21713,6 +21743,7 @@ class ImportView extends obsidian.ItemView {
         this.createdRecords = new Map();
         // Pending links to materialize after import
         this.pendingLinks = [];
+        this.nonLoreTypes = ['Character', 'Item', 'Location', 'Faction'];
         this.plugin = plugin;
     }
     getViewType() { return VIEW_TYPE_ARCHIVIST; }
@@ -21733,7 +21764,7 @@ class ImportView extends obsidian.ItemView {
             this.render();
         }
         catch (e) {
-            new obsidian.Notice(`Failed to load campaigns: ${e.message}`);
+            new obsidian.Notice(`Failed to load campaigns: ${getErrorMessage(e)}`);
         }
     }
     async createNewCampaign() {
@@ -21749,14 +21780,14 @@ class ImportView extends obsidian.ItemView {
             this.selectedCampaignId = created.id;
         }
         catch (e) {
-            new obsidian.Notice(`Failed to create campaign: ${e.message}`);
+            new obsidian.Notice(`Failed to create campaign: ${getErrorMessage(e)}`);
         }
         finally {
             this.isCreatingCampaign = false;
             this.render();
         }
     }
-    async loadVaultFiles() {
+    loadVaultFiles() {
         var _a;
         const files = this.app.vault.getMarkdownFiles();
         const defaultSubtype = ((_a = getLoreSubtypeOptions()[0]) === null || _a === void 0 ? void 0 : _a.value) || 'lore';
@@ -21773,8 +21804,7 @@ class ImportView extends obsidian.ItemView {
     render() {
         const container = this.containerEl.children[1];
         container.empty();
-        const header = container.createEl('div');
-        header.createEl('h3', { text: 'Archivist Importer' });
+        new obsidian.Setting(container).setName('Archivist importer').setHeading();
         const banner = container.createEl('div');
         if (!this.plugin.settings.apiKey) {
             banner.setText('API key missing. Open settings to configure your Archivist API key.');
@@ -21782,7 +21812,7 @@ class ImportView extends obsidian.ItemView {
         }
         // Campaign controls
         const campSection = container.createEl('div', { cls: 'archivist-section' });
-        campSection.createEl('h4', { text: 'Campaign' });
+        new obsidian.Setting(campSection).setName('Campaign').setHeading();
         const campControls = campSection.createEl('div', { cls: 'archivist-campaign-controls' });
         if (this.campaigns.length > 0) {
             const select = campControls.createEl('select', { cls: 'archivist-campaign-select' });
@@ -21807,18 +21837,22 @@ class ImportView extends obsidian.ItemView {
             createBtn.classList.add('archivist-btn-loading');
         }
         else {
-            createBtn.setText('Create New Campaign');
+            createBtn.setText('Create new campaign');
             createBtn.disabled = false;
         }
-        createBtn.onclick = () => this.createNewCampaign();
+        createBtn.onclick = () => {
+            void this.createNewCampaign().catch((err) => console.error(err));
+        };
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
-        refreshBtn.innerHTML = '↻';
+        refreshBtn.setText('↻');
         refreshBtn.disabled = this.isCreatingCampaign;
-        refreshBtn.onclick = () => this.refreshCampaigns();
+        refreshBtn.onclick = () => {
+            void this.refreshCampaigns().catch((err) => console.error(err));
+        };
         const campaignSelected = !!this.selectedCampaignId;
         // Files table
         const filesSection = container.createEl('div', { cls: 'archivist-section' });
-        filesSection.createEl('h4', { text: 'Vault Files' });
+        new obsidian.Setting(filesSection).setName('Vault files').setHeading();
         const table = filesSection.createEl('table', { cls: 'archivist-table' });
         const thead = table.createEl('thead');
         const headRow = thead.createEl('tr');
@@ -21834,7 +21868,7 @@ class ImportView extends obsidian.ItemView {
             this.rows.forEach(r => r.selected = newState);
             this.render();
         };
-        ['Title', 'Path', 'Size', 'Type', 'Lore Subtype'].forEach((h) => headRow.createEl('th', { text: h }));
+        ['Title', 'Path', 'Size', 'Type', 'Lore subtype'].forEach((h) => headRow.createEl('th', { text: h }));
         const tbody = table.createEl('tbody');
         for (let i = 0; i < this.rows.length; i++) {
             const row = this.rows[i];
@@ -21909,12 +21943,11 @@ class ImportView extends obsidian.ItemView {
                 text: `Importing ${this.importProgress.current} of ${this.importProgress.total}...`,
                 cls: 'archivist-progress-text'
             });
-            const progressBar = progressContainer.createEl('div', { cls: 'archivist-progress-bar' });
-            const progressFill = progressBar.createEl('div', { cls: 'archivist-progress-fill' });
-            const percent = this.importProgress.total > 0
-                ? (this.importProgress.current / this.importProgress.total) * 100
+            const progressBar = new obsidian.ProgressBarComponent(progressContainer);
+            const value = this.importProgress.total > 0
+                ? (this.importProgress.current / this.importProgress.total)
                 : 0;
-            progressFill.style.width = `${percent}%`;
+            progressBar.setValue(value);
         }
         else if (this.isCreatingLinks) {
             const progressContainer = importSection.createEl('div', { cls: 'archivist-progress-container' });
@@ -21922,17 +21955,18 @@ class ImportView extends obsidian.ItemView {
                 text: `Creating links ${this.linkProgress.current} of ${this.linkProgress.total}...`,
                 cls: 'archivist-progress-text'
             });
-            const progressBar = progressContainer.createEl('div', { cls: 'archivist-progress-bar' });
-            const progressFill = progressBar.createEl('div', { cls: 'archivist-progress-fill' });
-            const percent = this.linkProgress.total > 0
-                ? (this.linkProgress.current / this.linkProgress.total) * 100
+            const progressBar = new obsidian.ProgressBarComponent(progressContainer);
+            const value = this.linkProgress.total > 0
+                ? (this.linkProgress.current / this.linkProgress.total)
                 : 0;
-            progressFill.style.width = `${percent}%`;
+            progressBar.setValue(value);
         }
         else {
             const importBtn = importSection.createEl('button', { text: 'Import Selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
-            importBtn.onclick = () => this.importSelected();
+            importBtn.onclick = () => {
+                void this.importSelected().catch((err) => console.error(err));
+            };
         }
     }
     async importSelected() {
@@ -22027,7 +22061,7 @@ class ImportView extends obsidian.ItemView {
             }
             catch (e) {
                 row.status = 'error';
-                row.errorMessage = e.message || String(e);
+                row.errorMessage = getErrorMessage(e);
                 new obsidian.Notice(`Failed importing ${row.title}: ${row.errorMessage}`);
             }
         }
@@ -22053,7 +22087,7 @@ class ImportView extends obsidian.ItemView {
                         const targetRec = this.createdRecords.get(trimmedTarget);
                         if (!targetRec)
                             continue;
-                        const nonLore = (t) => t === 'Character' || t === 'Item' || t === 'Location' || t === 'Faction';
+                        const nonLore = (t) => this.nonLoreTypes.includes(t);
                         if (!nonLore(from.type) || !nonLore(targetRec.type))
                             continue;
                         if (from.id === targetRec.id)
@@ -22088,28 +22122,45 @@ class ImportView extends obsidian.ItemView {
         }
         catch (e) {
             this.isCreatingLinks = false;
-            new obsidian.Notice(`Link creation failed: ${e.message}`);
+            new obsidian.Notice(`Link creation failed: ${getErrorMessage(e)}`);
         }
         this.render();
         new obsidian.Notice(`Import complete! ${selected.length} file(s) processed.`);
     }
 }
+function getErrorMessage(e) {
+    if (e instanceof Error)
+        return e.message;
+    if (typeof e === 'string')
+        return e;
+    try {
+        return JSON.stringify(e);
+    }
+    catch (_a) {
+        return String(e);
+    }
+}
 
 class ArchivistImporterPlugin extends obsidian.Plugin {
-    async onload() {
+    onload() {
+        void this.onloadAsync();
+    }
+    async onloadAsync() {
         await this.loadSettings();
         this.registerView(VIEW_TYPE_ARCHIVIST, (leaf) => new ImportView(leaf, this));
-        this.addRibbonIcon('upload', 'Open Archivist Importer', () => {
-            this.activateView();
+        this.addRibbonIcon('upload', 'Open import view', () => {
+            void this.activateView().catch((err) => console.error(err));
         });
         this.addCommand({
-            id: 'open-archivist-importer',
-            name: 'Open Archivist Importer',
-            callback: () => this.activateView()
+            id: 'open-import-view',
+            name: 'Open import view',
+            callback: () => {
+                void this.activateView().catch((err) => console.error(err));
+            }
         });
         this.addSettingTab(new ArchivistSettingTab(this.app, this));
     }
-    async onunload() { }
+    onunload() { }
     async activateView() {
         const { workspace } = this.app;
         let leaf = workspace.getLeavesOfType(VIEW_TYPE_ARCHIVIST)[0];

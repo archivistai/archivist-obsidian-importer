@@ -21,11 +21,11 @@ export class ArchivistSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Archivist Importer Settings' });
+        new Setting(containerEl).setName('Archivist importer').setHeading();
 
         new Setting(containerEl)
-            .setName('API Key')
-            .setDesc('Your Archivist API Key (stored locally in this vault).')
+            .setName('API key')
+            .setDesc('Your Archivist API key (stored locally in this vault).')
             .addText((text) => {
                 text.inputEl.type = 'password';
                 text.setPlaceholder('archivist_...')
