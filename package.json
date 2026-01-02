@@ -13,6 +13,7 @@
         "@rollup/plugin-node-resolve": "^15.2.3",
         "@types/node": "^20.11.0",
         "@types/unist": "^3.0.3",
+        "@typescript-eslint/parser": "^8.51.0",
         "obsidian": "^1.5.0",
         "rollup": "^4.22.4",
         "rollup-plugin-copy": "^3.5.0",
@@ -21,6 +22,8 @@
         "typescript": "^5.4.5"
     },
     "dependencies": {
+        "eslint": "^9.39.2",
+        "eslint-plugin-obsidianmd": "^0.1.9",
         "remark-frontmatter": "^5.0.0",
         "remark-gfm": "^4.0.1",
         "remark-parse": "^11.0.0",

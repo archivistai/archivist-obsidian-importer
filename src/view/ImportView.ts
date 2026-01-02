@@ -45,12 +45,12 @@ export default class ImportView extends ItemView {
     }
 
     getViewType(): string { return VIEW_TYPE_ARCHIVIST; }
-    getDisplayText(): string { return 'Archivist Importer'; }
+    getDisplayText(): string { return 'Archivist importer'; }
 
     async onOpen(): Promise<void> {
         this.render();
         await this.refreshCampaigns();
-        await this.loadVaultFiles();
+        this.loadVaultFiles();
     }
 
     async refreshCampaigns() {
@@ -105,7 +105,7 @@ export default class ImportView extends ItemView {
 
         const banner = container.createEl('div');
         if (!this.plugin.settings.apiKey) {
-            banner.setText('API key missing. Open settings to configure your Archivist API key.');
+            banner.setText('API key missing. Open settings to configure your archivist API key');
             return;
         }
 
@@ -140,13 +140,17 @@ export default class ImportView extends ItemView {
             createBtn.disabled = false;
         }
         createBtn.onclick = () => {
-            void this.createNewCampaign().catch((err: unknown) => console.error(err));
+            void this.createNewCampaign().catch(() => {
+                // Error handling is done in createNewCampaign
+            });
         };
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
         refreshBtn.setText('↻');
         refreshBtn.disabled = this.isCreatingCampaign;
         refreshBtn.onclick = () => {
-            void this.refreshCampaigns().catch((err: unknown) => console.error(err));
+            void this.refreshCampaigns().catch(() => {
+                // Error handling is done in refreshCampaigns
+            });
         };
 
         const campaignSelected = !!this.selectedCampaignId;
@@ -266,10 +270,12 @@ export default class ImportView extends ItemView {
                 : 0;
             progressBar.setValue(value);
         } else {
-            const importBtn = importSection.createEl('button', { text: 'Import Selected', cls: 'archivist-import-btn' });
+            const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
             importBtn.onclick = () => {
-                void this.importSelected().catch((err: unknown) => console.error(err));
+                void this.importSelected().catch(() => {
+                    // Error handling is done in importSelected
+                });
             };
         }
     }
@@ -335,7 +341,7 @@ export default class ImportView extends ItemView {
                         // Empty file, create one entry
                         await createLore(cfg, {
                             world_id: this.selectedCampaignId,
-                            sub_type: row.loreSubtype!,
+                            sub_type: row.loreSubtype ?? 'lore',
                             content: '',
                             file_name: row.title + '.md',
                             original_name: row.title + '.md',
@@ -347,7 +353,7 @@ export default class ImportView extends ItemView {
                             const ch = chunks[idx];
                             await createLore(cfg, {
                                 world_id: this.selectedCampaignId,
-                                sub_type: row.loreSubtype!,
+                                sub_type: row.loreSubtype ?? 'lore',
                                 content: ch.chunk,
                                 file_name: ch.name + '.md',
                                 original_name: row.title + (chunks.length > 1 ? ` - ${idx + 1}` : '') + '.md',

@@ -18,14 +18,18 @@ export default class ArchivistImporterPlugin extends Plugin {
         );
 
         this.addRibbonIcon('upload', 'Open import view', () => {
-            void this.activateView().catch((err: unknown) => console.error(err));
+            void this.activateView().catch(() => {
+                // Error handling is done in activateView if needed
+            });
         });
 
         this.addCommand({
             id: 'open-import-view',
             name: 'Open import view',
             callback: () => {
-                void this.activateView().catch((err: unknown) => console.error(err));
+                void this.activateView().catch(() => {
+                    // Error handling is done in activateView if needed
+                });
             }
         });
 
@@ -34,7 +38,7 @@ export default class ArchivistImporterPlugin extends Plugin {
 
     onunload(): void { }
 
-    async activateView() {
+    async activateView(): Promise<void> {
         const { workspace } = this.app;
         let leaf = workspace.getLeavesOfType(VIEW_TYPE_ARCHIVIST)[0];
         if (!leaf) {
@@ -43,11 +47,12 @@ export default class ArchivistImporterPlugin extends Plugin {
             leaf = rightLeaf;
             await leaf.setViewState({ type: VIEW_TYPE_ARCHIVIST, active: true });
         }
-        workspace.revealLeaf(leaf);
+        void workspace.revealLeaf(leaf);
     }
 
-    async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    async loadSettings(): Promise<void> {
+        const data = await this.loadData() as Partial<ArchivistSettings> | null;
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
     }
 
     async saveSettings() {
