@@ -96,16 +96,21 @@ export async function createFaction(config: ApiConfig, payload: {
     return apiRequest<{ id: string }>(config, `/v1/factions`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
-export async function createLore(config: ApiConfig, payload: {
+export async function createJournalEntry(config: ApiConfig, payload: {
     world_id: string;
-    sub_type: string;
-    content: string;
-    file_name: string;
-    original_name?: string;
-    file_type?: string;
-    size?: number;
+    title: string;
+    content?: string;
+    summary?: string;
+    tags?: string[];
+    cover_image?: string;
+    is_pinned?: boolean;
+    is_public?: boolean;
+    status?: 'draft' | 'published' | 'archived';
+    published_at?: string;
+    archived_at?: string;
+    folder_id?: string;
 }) {
-    return apiRequest<{ id?: string }>(config, `/v1/lore`, { method: 'POST', body: JSON.stringify(payload) });
+    return apiRequest<{ id?: string }>(config, `/v1/journals`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export async function createCampaignLink(config: ApiConfig, campaignId: string, payload: {

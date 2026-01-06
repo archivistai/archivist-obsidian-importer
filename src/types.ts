@@ -1,4 +1,4 @@
-export type DocumentKind = 'Player Character' | 'NPC' | 'Item' | 'Location' | 'Faction' | 'Lore';
+export type DocumentKind = 'Player Character' | 'NPC' | 'Item' | 'Location' | 'Faction' | 'Journal Entry';
 
 export interface Campaign {
     id: string;
@@ -14,7 +14,6 @@ export interface ImportRowState {
     title: string;
     size: number;
     kind: DocumentKind;
-    loreSubtype?: string;
     selected: boolean;
     status?: 'queued' | 'uploading' | 'done' | 'error';
     errorMessage?: string;

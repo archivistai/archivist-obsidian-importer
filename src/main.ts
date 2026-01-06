@@ -48,6 +48,10 @@ export default class ArchivistImporterPlugin extends Plugin {
             await leaf.setViewState({ type: VIEW_TYPE_ARCHIVIST, active: true });
         }
         void workspace.revealLeaf(leaf);
+        const view = leaf.view;
+        if (view instanceof ImportView) {
+            view.resetSelection();
+        }
     }
 
     async loadSettings(): Promise<void> {

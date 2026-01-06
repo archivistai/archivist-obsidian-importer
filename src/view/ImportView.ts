@@ -1,8 +1,7 @@
 import { ItemView, Notice, ProgressBarComponent, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import type { Campaign, DocumentKind, ImportRowState } from '../types';
 import type ArchivistImporterPlugin from '../main';
-import { getLoreSubtypeOptions } from '../loreSubtypes';
-import { listCampaigns, createCampaign, createCharacter, createFaction, createItem, createLocation, createLore, createCampaignLink } from '../api';
+import { listCampaigns, createCampaign, createCharacter, createFaction, createItem, createLocation, createJournalEntry, createCampaignLink } from '../api';
 import { splitContentIntoChunks } from '../chunker';
 import { sanitizeMarkdown } from '../markdownCleaner';
 
@@ -37,7 +36,7 @@ export default class ImportView extends ItemView {
     private createdRecords: Map<string, { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }> = new Map();
     // Pending links to materialize after import
     private pendingLinks: Array<{ fromTitle: string; fromType: 'Character' | 'Item' | 'Location' | 'Faction'; links: Array<{ target: string; alias: string }> }> = [];
-    private readonly nonLoreTypes = ['Character', 'Item', 'Location', 'Faction'] as const;
+    private readonly linkableTypes = ['Character', 'Item', 'Location', 'Faction'] as const;
 
     constructor(leaf: WorkspaceLeaf, plugin: ArchivistImporterPlugin) {
         super(leaf);
@@ -85,16 +84,30 @@ export default class ImportView extends ItemView {
 
     loadVaultFiles(): void {
         const files = this.app.vault.getMarkdownFiles();
-        const defaultSubtype = getLoreSubtypeOptions()[0]?.value || 'lore';
         this.rows = files.map((f) => ({
             filePath: f.path,
             title: f.basename,
             size: f.stat.size,
             selected: false,
-            kind: 'Lore',
-            loreSubtype: defaultSubtype
+            kind: 'Journal Entry'
         }));
+        this.lastClickedIndex = -1;
         this.render();
+    }
+
+    resetSelection(): void {
+        let changed = false;
+        for (const row of this.rows) {
+            if (row.selected) {
+                row.selected = false;
+                changed = true;
+            }
+        }
+        if (this.lastClickedIndex !== -1) {
+            this.lastClickedIndex = -1;
+            changed = true;
+        }
+        if (changed) this.render();
     }
 
     render() {
@@ -176,7 +189,7 @@ export default class ImportView extends ItemView {
             this.render();
         };
 
-        ['Title', 'Path', 'Size', 'Type', 'Lore subtype'].forEach((h) => headRow.createEl('th', { text: h }));
+        ['Title', 'Path', 'Size', 'Type'].forEach((h) => headRow.createEl('th', { text: h }));
 
         const tbody = table.createEl('tbody');
 
@@ -212,7 +225,7 @@ export default class ImportView extends ItemView {
             // type
             const tdType = tr.createEl('td');
             const typeSel = tdType.createEl('select');
-            const kinds: DocumentKind[] = ['Player Character', 'NPC', 'Item', 'Location', 'Faction', 'Lore'];
+            const kinds: DocumentKind[] = ['Player Character', 'NPC', 'Item', 'Location', 'Faction', 'Journal Entry'];
             for (const k of kinds) {
                 const opt = typeSel.createEl('option', { text: k, value: k });
                 if (row.kind === k) opt.selected = true;
@@ -220,28 +233,7 @@ export default class ImportView extends ItemView {
             typeSel.disabled = !campaignSelected;
             typeSel.onchange = () => {
                 row.kind = typeSel.value as DocumentKind;
-                // If changed to Lore and no subtype yet, set default
-                if (row.kind === 'Lore' && !row.loreSubtype) {
-                    row.loreSubtype = getLoreSubtypeOptions()[0]?.value || 'lore';
-                }
-                this.render();
             };
-
-            // lore subtype conditional
-            const tdSubtype = tr.createEl('td');
-            if (row.kind === 'Lore') {
-                const subSel = tdSubtype.createEl('select');
-                const options = getLoreSubtypeOptions();
-                if (!row.loreSubtype && options.length) row.loreSubtype = options[0].value;
-                for (const o of options) {
-                    const opt = subSel.createEl('option', { text: o.label, value: o.value });
-                    if (row.loreSubtype === o.value) opt.selected = true;
-                }
-                subSel.disabled = !campaignSelected;
-                subSel.onchange = () => { row.loreSubtype = subSel.value; };
-            } else {
-                tdSubtype.setText('-');
-            }
         }
 
         // Import button and progress
@@ -334,31 +326,22 @@ export default class ImportView extends ItemView {
                     const fromType = 'Faction';
                     this.createdRecords.set(row.title, { id: created.id, type: fromType });
                     if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
-                } else if (row.kind === 'Lore') {
-                    if (!row.loreSubtype) throw new Error('Lore subtype is required');
+                } else if (row.kind === 'Journal Entry') {
                     const chunks = splitContentIntoChunks(row.title, content);
                     if (chunks.length === 0) {
                         // Empty file, create one entry
-                        await createLore(cfg, {
+                        await createJournalEntry(cfg, {
                             world_id: this.selectedCampaignId,
-                            sub_type: row.loreSubtype ?? 'lore',
-                            content: '',
-                            file_name: row.title + '.md',
-                            original_name: row.title + '.md',
-                            file_type: 'text/markdown',
-                            size: 0
+                            title: row.title,
+                            content: ''
                         });
                     } else {
                         for (let idx = 0; idx < chunks.length; idx++) {
                             const ch = chunks[idx];
-                            await createLore(cfg, {
+                            await createJournalEntry(cfg, {
                                 world_id: this.selectedCampaignId,
-                                sub_type: row.loreSubtype ?? 'lore',
-                                content: ch.chunk,
-                                file_name: ch.name + '.md',
-                                original_name: row.title + (chunks.length > 1 ? ` - ${idx + 1}` : '') + '.md',
-                                file_type: 'text/markdown',
-                                size: ch.chunk.length
+                                title: ch.name,
+                                content: ch.chunk
                             });
                         }
                     }
@@ -374,7 +357,7 @@ export default class ImportView extends ItemView {
         this.importProgress.current = selected.length;
         this.isImporting = false;
 
-        // After import, materialize links for in-cohort non-Lore references (deduplicated)
+        // After import, materialize links for in-cohort non-journal references (deduplicated)
         try {
             if (this.pendingLinks.length && this.selectedCampaignId) {
                 // Calculate total potential links
@@ -395,9 +378,9 @@ export default class ImportView extends ItemView {
                         const targetRec = this.createdRecords.get(trimmedTarget);
                         if (!targetRec) continue;
 
-                        const nonLore = (t: string): t is (typeof this.nonLoreTypes)[number] =>
-                            (this.nonLoreTypes as readonly string[]).includes(t);
-                        if (!nonLore(from.type) || !nonLore(targetRec.type)) continue;
+                        const linkable = (t: string): t is (typeof this.linkableTypes)[number] =>
+                            (this.linkableTypes as readonly string[]).includes(t);
+                        if (!linkable(from.type) || !linkable(targetRec.type)) continue;
                         if (from.id === targetRec.id) continue;
 
                         const key = `${from.id}:${targetRec.id}`;
