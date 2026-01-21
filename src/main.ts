@@ -59,7 +59,21 @@ export default class ArchivistImporterPlugin extends Plugin {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
     }
 
-    async saveSettings() {
+    async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
+        this.refreshImportViews();
+    }
+
+    private refreshImportViews(): void {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_ARCHIVIST);
+        for (const leaf of leaves) {
+            const view = leaf.view;
+            if (view instanceof ImportView) {
+                view.render();
+                void view.refreshCampaigns().catch(() => {
+                    // Error handling is done in refreshCampaigns if needed
+                });
+            }
+        }
     }
 }

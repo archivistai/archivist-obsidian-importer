@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, TextComponent } from 'obsidian';
 import type ArchivistImporterPlugin from './main';
 
 export interface ArchivistSettings {
@@ -23,16 +23,37 @@ export class ArchivistSettingTab extends PluginSettingTab {
 
         new Setting(containerEl).setName('Configuration').setHeading();
 
+        let pendingApiKey = this.plugin.settings.apiKey;
+        let apiKeyInput: TextComponent | null = null;
+
         new Setting(containerEl)
             .setName('API key')
             .setDesc('Your archivist API key (stored locally in this vault)')
             .addText((text) => {
+                apiKeyInput = text;
                 text.inputEl.type = 'password';
                 text.setPlaceholder('Enter your API key')
                     .setValue(this.plugin.settings.apiKey)
-                    .onChange(async (value) => {
-                        this.plugin.settings.apiKey = value.trim();
+                    .onChange((value) => {
+                        pendingApiKey = value.trim();
+                    });
+            })
+            .addButton((button) => {
+                button.setButtonText('Save')
+                    .setCta()
+                    .onClick(async () => {
+                        this.plugin.settings.apiKey = pendingApiKey;
                         await this.plugin.saveSettings();
+                    });
+            })
+            .addButton((button) => {
+                button.setButtonText('Delete')
+                    .setWarning()
+                    .onClick(async () => {
+                        pendingApiKey = '';
+                        this.plugin.settings.apiKey = '';
+                        await this.plugin.saveSettings();
+                        apiKeyInput?.setValue('');
                     });
             });
     }
