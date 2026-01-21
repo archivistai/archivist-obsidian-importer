@@ -13,71 +13,41 @@ class ArchivistSettingTab extends obsidian.PluginSettingTab {
     display() {
         const { containerEl } = this;
         containerEl.empty();
-        new obsidian.Setting(containerEl).setName('Archivist importer').setHeading();
+        new obsidian.Setting(containerEl).setName('Configuration').setHeading();
+        let pendingApiKey = this.plugin.settings.apiKey;
+        let apiKeyInput = null;
         new obsidian.Setting(containerEl)
             .setName('API key')
-            .setDesc('Your Archivist API key (stored locally in this vault).')
+            .setDesc('Your archivist API key (stored locally in this vault)')
             .addText((text) => {
+            apiKeyInput = text;
             text.inputEl.type = 'password';
-            text.setPlaceholder('archivist_...')
+            text.setPlaceholder('Enter your API key')
                 .setValue(this.plugin.settings.apiKey)
-                .onChange(async (value) => {
-                this.plugin.settings.apiKey = value.trim();
+                .onChange((value) => {
+                pendingApiKey = value.trim();
+            });
+        })
+            .addButton((button) => {
+            button.setButtonText('Save')
+                .setCta()
+                .onClick(async () => {
+                this.plugin.settings.apiKey = pendingApiKey;
                 await this.plugin.saveSettings();
+            });
+        })
+            .addButton((button) => {
+            button.setButtonText('Delete')
+                .setWarning()
+                .onClick(async () => {
+                pendingApiKey = '';
+                this.plugin.settings.apiKey = '';
+                await this.plugin.saveSettings();
+                apiKeyInput === null || apiKeyInput === void 0 ? void 0 : apiKeyInput.setValue('');
             });
         });
     }
 }
-
-const LORE_SUBTYPES = {
-    worldHistory: 'World History',
-    timeline: 'Timeline',
-    calendar: 'Calendar & Holidays',
-    geography: 'Geography & Maps',
-    climate: 'Climate & Weather',
-    cosmology: 'Cosmology & Planes',
-    magic: 'Magic System',
-    technology: 'Technology Level',
-    pantheon: 'Pantheon & Deities',
-    religion: 'Religious Orders',
-    mythology: 'Myths & Legends',
-    culture: 'Cultural Notes',
-    languages: 'Languages & Scripts',
-    customs: 'Customs & Traditions',
-    festivals: 'Festivals & Celebrations',
-    politics: 'Political Systems',
-    nobility: 'Noble Houses',
-    guilds: 'Guilds & Organizations',
-    laws: 'Laws & Legal System',
-    trade: 'Trade & Economy',
-    currency: 'Currency & Commerce',
-    wars: 'Wars & Conflicts',
-    disasters: 'Disasters & Catastrophes',
-    discoveries: 'Important Discoveries',
-    inventions: 'Notable Inventions',
-    dynasties: 'Dynasties & Succession',
-    races: 'Races & Species',
-    monsters: 'Monsters & Creatures',
-    wildlife: 'Flora & Fauna',
-    dragons: 'Dragons & Ancient Beings',
-    artifacts: 'Legendary Artifacts',
-    weapons: 'Notable Weapons',
-    items: 'Important Items',
-    treasures: 'Treasures & Valuables',
-    prophecies: 'Prophecies & Omens',
-    secrets: 'Hidden Knowledge',
-    lore: 'Ancient Lore',
-    research: 'Research Notes',
-    spells: 'Spells & Rituals',
-    alchemy: 'Alchemy & Crafting',
-    adventure: 'Adventure Hooks',
-    plots: 'Plot Threads',
-    npcs: 'Important NPCs',
-    rules: 'House Rules',
-    references: 'Quick References',
-    other: 'Other/Miscellaneous'
-};
-const getLoreSubtypeOptions = () => Object.entries(LORE_SUBTYPES).map(([value, label]) => ({ value, label }));
 
 const API_BASE_URL = 'https://api.myarchivist.ai';
 function getResponseBody(res) {
@@ -141,8 +111,8 @@ async function createLocation(config, payload) {
 async function createFaction(config, payload) {
     return apiRequest(config, `/v1/factions`, { method: 'POST', body: JSON.stringify(payload) });
 }
-async function createLore(config, payload) {
-    return apiRequest(config, `/v1/lore`, { method: 'POST', body: JSON.stringify(payload) });
+async function createJournalEntry(config, payload) {
+    return apiRequest(config, `/v1/journals`, { method: 'POST', body: JSON.stringify(payload) });
 }
 async function createCampaignLink(config, campaignId, payload) {
     return apiRequest(config, `/v1/campaigns/${encodeURIComponent(campaignId)}/links`, {
@@ -21743,15 +21713,15 @@ class ImportView extends obsidian.ItemView {
         this.createdRecords = new Map();
         // Pending links to materialize after import
         this.pendingLinks = [];
-        this.nonLoreTypes = ['Character', 'Item', 'Location', 'Faction'];
+        this.linkableTypes = ['Character', 'Item', 'Location', 'Faction'];
         this.plugin = plugin;
     }
     getViewType() { return VIEW_TYPE_ARCHIVIST; }
-    getDisplayText() { return 'Archivist Importer'; }
+    getDisplayText() { return 'Archivist importer'; }
     async onOpen() {
         this.render();
         await this.refreshCampaigns();
-        await this.loadVaultFiles();
+        this.loadVaultFiles();
     }
     async refreshCampaigns() {
         var _a, _b;
@@ -21788,18 +21758,31 @@ class ImportView extends obsidian.ItemView {
         }
     }
     loadVaultFiles() {
-        var _a;
         const files = this.app.vault.getMarkdownFiles();
-        const defaultSubtype = ((_a = getLoreSubtypeOptions()[0]) === null || _a === void 0 ? void 0 : _a.value) || 'lore';
         this.rows = files.map((f) => ({
             filePath: f.path,
             title: f.basename,
             size: f.stat.size,
             selected: false,
-            kind: 'Lore',
-            loreSubtype: defaultSubtype
+            kind: 'Journal Entry'
         }));
+        this.lastClickedIndex = -1;
         this.render();
+    }
+    resetSelection() {
+        let changed = false;
+        for (const row of this.rows) {
+            if (row.selected) {
+                row.selected = false;
+                changed = true;
+            }
+        }
+        if (this.lastClickedIndex !== -1) {
+            this.lastClickedIndex = -1;
+            changed = true;
+        }
+        if (changed)
+            this.render();
     }
     render() {
         const container = this.containerEl.children[1];
@@ -21807,7 +21790,7 @@ class ImportView extends obsidian.ItemView {
         new obsidian.Setting(container).setName('Archivist importer').setHeading();
         const banner = container.createEl('div');
         if (!this.plugin.settings.apiKey) {
-            banner.setText('API key missing. Open settings to configure your Archivist API key.');
+            banner.setText('API key missing. Open settings to configure your archivist API key');
             return;
         }
         // Campaign controls
@@ -21841,13 +21824,17 @@ class ImportView extends obsidian.ItemView {
             createBtn.disabled = false;
         }
         createBtn.onclick = () => {
-            void this.createNewCampaign().catch((err) => console.error(err));
+            void this.createNewCampaign().catch(() => {
+                // Error handling is done in createNewCampaign
+            });
         };
         const refreshBtn = btnGroup.createEl('button', { cls: 'archivist-refresh-btn', attr: { 'aria-label': 'Refresh campaigns' } });
         refreshBtn.setText('↻');
         refreshBtn.disabled = this.isCreatingCampaign;
         refreshBtn.onclick = () => {
-            void this.refreshCampaigns().catch((err) => console.error(err));
+            void this.refreshCampaigns().catch(() => {
+                // Error handling is done in refreshCampaigns
+            });
         };
         const campaignSelected = !!this.selectedCampaignId;
         // Files table
@@ -21868,7 +21855,7 @@ class ImportView extends obsidian.ItemView {
             this.rows.forEach(r => r.selected = newState);
             this.render();
         };
-        ['Title', 'Path', 'Size', 'Type', 'Lore subtype'].forEach((h) => headRow.createEl('th', { text: h }));
+        ['Title', 'Path', 'Size', 'Type'].forEach((h) => headRow.createEl('th', { text: h }));
         const tbody = table.createEl('tbody');
         for (let i = 0; i < this.rows.length; i++) {
             const row = this.rows[i];
@@ -21900,7 +21887,7 @@ class ImportView extends obsidian.ItemView {
             // type
             const tdType = tr.createEl('td');
             const typeSel = tdType.createEl('select');
-            const kinds = ['Player Character', 'NPC', 'Item', 'Location', 'Faction', 'Lore'];
+            const kinds = ['Player Character', 'NPC', 'Item', 'Location', 'Faction', 'Journal Entry'];
             for (const k of kinds) {
                 const opt = typeSel.createEl('option', { text: k, value: k });
                 if (row.kind === k)
@@ -21908,32 +21895,8 @@ class ImportView extends obsidian.ItemView {
             }
             typeSel.disabled = !campaignSelected;
             typeSel.onchange = () => {
-                var _a;
                 row.kind = typeSel.value;
-                // If changed to Lore and no subtype yet, set default
-                if (row.kind === 'Lore' && !row.loreSubtype) {
-                    row.loreSubtype = ((_a = getLoreSubtypeOptions()[0]) === null || _a === void 0 ? void 0 : _a.value) || 'lore';
-                }
-                this.render();
             };
-            // lore subtype conditional
-            const tdSubtype = tr.createEl('td');
-            if (row.kind === 'Lore') {
-                const subSel = tdSubtype.createEl('select');
-                const options = getLoreSubtypeOptions();
-                if (!row.loreSubtype && options.length)
-                    row.loreSubtype = options[0].value;
-                for (const o of options) {
-                    const opt = subSel.createEl('option', { text: o.label, value: o.value });
-                    if (row.loreSubtype === o.value)
-                        opt.selected = true;
-                }
-                subSel.disabled = !campaignSelected;
-                subSel.onchange = () => { row.loreSubtype = subSel.value; };
-            }
-            else {
-                tdSubtype.setText('-');
-            }
         }
         // Import button and progress
         const importSection = container.createEl('div', { cls: 'archivist-section' });
@@ -21962,10 +21925,12 @@ class ImportView extends obsidian.ItemView {
             progressBar.setValue(value);
         }
         else {
-            const importBtn = importSection.createEl('button', { text: 'Import Selected', cls: 'archivist-import-btn' });
+            const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
             importBtn.onclick = () => {
-                void this.importSelected().catch((err) => console.error(err));
+                void this.importSelected().catch(() => {
+                    // Error handling is done in importSelected
+                });
             };
         }
     }
@@ -22026,33 +21991,23 @@ class ImportView extends obsidian.ItemView {
                     if (extracted.length)
                         this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
                 }
-                else if (row.kind === 'Lore') {
-                    if (!row.loreSubtype)
-                        throw new Error('Lore subtype is required');
+                else if (row.kind === 'Journal Entry') {
                     const chunks = splitContentIntoChunks(row.title, content);
                     if (chunks.length === 0) {
                         // Empty file, create one entry
-                        await createLore(cfg, {
+                        await createJournalEntry(cfg, {
                             world_id: this.selectedCampaignId,
-                            sub_type: row.loreSubtype,
-                            content: '',
-                            file_name: row.title + '.md',
-                            original_name: row.title + '.md',
-                            file_type: 'text/markdown',
-                            size: 0
+                            title: row.title,
+                            content: ''
                         });
                     }
                     else {
                         for (let idx = 0; idx < chunks.length; idx++) {
                             const ch = chunks[idx];
-                            await createLore(cfg, {
+                            await createJournalEntry(cfg, {
                                 world_id: this.selectedCampaignId,
-                                sub_type: row.loreSubtype,
-                                content: ch.chunk,
-                                file_name: ch.name + '.md',
-                                original_name: row.title + (chunks.length > 1 ? ` - ${idx + 1}` : '') + '.md',
-                                file_type: 'text/markdown',
-                                size: ch.chunk.length
+                                title: ch.name,
+                                content: ch.chunk
                             });
                         }
                     }
@@ -22067,7 +22022,7 @@ class ImportView extends obsidian.ItemView {
         }
         this.importProgress.current = selected.length;
         this.isImporting = false;
-        // After import, materialize links for in-cohort non-Lore references (deduplicated)
+        // After import, materialize links for in-cohort non-journal references (deduplicated)
         try {
             if (this.pendingLinks.length && this.selectedCampaignId) {
                 // Calculate total potential links
@@ -22087,8 +22042,8 @@ class ImportView extends obsidian.ItemView {
                         const targetRec = this.createdRecords.get(trimmedTarget);
                         if (!targetRec)
                             continue;
-                        const nonLore = (t) => this.nonLoreTypes.includes(t);
-                        if (!nonLore(from.type) || !nonLore(targetRec.type))
+                        const linkable = (t) => this.linkableTypes.includes(t);
+                        if (!linkable(from.type) || !linkable(targetRec.type))
                             continue;
                         if (from.id === targetRec.id)
                             continue;
@@ -22149,13 +22104,17 @@ class ArchivistImporterPlugin extends obsidian.Plugin {
         await this.loadSettings();
         this.registerView(VIEW_TYPE_ARCHIVIST, (leaf) => new ImportView(leaf, this));
         this.addRibbonIcon('upload', 'Open import view', () => {
-            void this.activateView().catch((err) => console.error(err));
+            void this.activateView().catch(() => {
+                // Error handling is done in activateView if needed
+            });
         });
         this.addCommand({
             id: 'open-import-view',
             name: 'Open import view',
             callback: () => {
-                void this.activateView().catch((err) => console.error(err));
+                void this.activateView().catch(() => {
+                    // Error handling is done in activateView if needed
+                });
             }
         });
         this.addSettingTab(new ArchivistSettingTab(this.app, this));
@@ -22171,13 +22130,31 @@ class ArchivistImporterPlugin extends obsidian.Plugin {
             leaf = rightLeaf;
             await leaf.setViewState({ type: VIEW_TYPE_ARCHIVIST, active: true });
         }
-        workspace.revealLeaf(leaf);
+        void workspace.revealLeaf(leaf);
+        const view = leaf.view;
+        if (view instanceof ImportView) {
+            view.resetSelection();
+        }
     }
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        const data = await this.loadData();
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, data !== null && data !== void 0 ? data : {});
     }
     async saveSettings() {
         await this.saveData(this.settings);
+        this.refreshImportViews();
+    }
+    refreshImportViews() {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_ARCHIVIST);
+        for (const leaf of leaves) {
+            const view = leaf.view;
+            if (view instanceof ImportView) {
+                view.render();
+                void view.refreshCampaigns().catch(() => {
+                    // Error handling is done in refreshCampaigns if needed
+                });
+            }
+        }
     }
 }
 
