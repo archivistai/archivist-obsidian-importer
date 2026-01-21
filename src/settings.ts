@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, TextComponent } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, TextComponent } from 'obsidian';
 import type ArchivistImporterPlugin from './main';
 
 export interface ArchivistSettings {
@@ -42,18 +42,30 @@ export class ArchivistSettingTab extends PluginSettingTab {
                 button.setButtonText('Save')
                     .setCta()
                     .onClick(async () => {
-                        this.plugin.settings.apiKey = pendingApiKey;
-                        await this.plugin.saveSettings();
+                        try {
+                            this.plugin.settings.apiKey = pendingApiKey;
+                            await this.plugin.saveSettings();
+                            new Notice('Archivist API key saved');
+                        } catch (e) {
+                            const message = e instanceof Error ? e.message : 'Unknown error';
+                            new Notice(`Failed to save API key: ${message}`);
+                        }
                     });
             })
             .addButton((button) => {
                 button.setButtonText('Delete')
                     .setWarning()
                     .onClick(async () => {
-                        pendingApiKey = '';
-                        this.plugin.settings.apiKey = '';
-                        await this.plugin.saveSettings();
-                        apiKeyInput?.setValue('');
+                        try {
+                            pendingApiKey = '';
+                            this.plugin.settings.apiKey = '';
+                            await this.plugin.saveSettings();
+                            apiKeyInput?.setValue('');
+                            new Notice('Archivist API key deleted');
+                        } catch (e) {
+                            const message = e instanceof Error ? e.message : 'Unknown error';
+                            new Notice(`Failed to delete API key: ${message}`);
+                        }
                     });
             });
     }

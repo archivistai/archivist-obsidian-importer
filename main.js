@@ -32,18 +32,32 @@ class ArchivistSettingTab extends obsidian.PluginSettingTab {
             button.setButtonText('Save')
                 .setCta()
                 .onClick(async () => {
-                this.plugin.settings.apiKey = pendingApiKey;
-                await this.plugin.saveSettings();
+                try {
+                    this.plugin.settings.apiKey = pendingApiKey;
+                    await this.plugin.saveSettings();
+                    new obsidian.Notice('Archivist API key saved');
+                }
+                catch (e) {
+                    const message = e instanceof Error ? e.message : 'Unknown error';
+                    new obsidian.Notice(`Failed to save API key: ${message}`);
+                }
             });
         })
             .addButton((button) => {
             button.setButtonText('Delete')
                 .setWarning()
                 .onClick(async () => {
-                pendingApiKey = '';
-                this.plugin.settings.apiKey = '';
-                await this.plugin.saveSettings();
-                apiKeyInput === null || apiKeyInput === void 0 ? void 0 : apiKeyInput.setValue('');
+                try {
+                    pendingApiKey = '';
+                    this.plugin.settings.apiKey = '';
+                    await this.plugin.saveSettings();
+                    apiKeyInput === null || apiKeyInput === void 0 ? void 0 : apiKeyInput.setValue('');
+                    new obsidian.Notice('Archivist API key deleted');
+                }
+                catch (e) {
+                    const message = e instanceof Error ? e.message : 'Unknown error';
+                    new obsidian.Notice(`Failed to delete API key: ${message}`);
+                }
             });
         });
     }
