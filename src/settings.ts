@@ -1,12 +1,12 @@
-import { App, Notice, PluginSettingTab, Setting, TextComponent } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, SecretComponent } from 'obsidian';
 import type ArchivistImporterPlugin from './main';
 
 export interface ArchivistSettings {
-    apiKey: string;
+    // Deprecated: API key is now stored in Obsidian Secret Storage.
+    apiKey?: string;
 }
 
 export const DEFAULT_SETTINGS: ArchivistSettings = {
-    apiKey: ''
 };
 
 export class ArchivistSettingTab extends PluginSettingTab {
@@ -21,31 +21,44 @@ export class ArchivistSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        new Setting(containerEl).setName('Configuration').setHeading();
+        let pendingApiKey = '';
+        let apiKeyInput: SecretComponent | null = null;
 
-        let pendingApiKey = this.plugin.settings.apiKey;
-        let apiKeyInput: TextComponent | null = null;
-
-        new Setting(containerEl)
+        const hasStoredKey = !!this.plugin.getApiKey();
+        const apiSetting = new Setting(containerEl)
             .setName('API key')
-            .setDesc('Your archivist API key (stored locally in this vault)')
-            .addText((text) => {
-                apiKeyInput = text;
-                text.inputEl.type = 'password';
-                text.setPlaceholder('Enter your API key')
-                    .setValue(this.plugin.settings.apiKey)
-                    .onChange((value) => {
-                        pendingApiKey = value.trim();
-                    });
-            })
+            .setDesc(
+                hasStoredKey
+                    ? 'API key stored in Obsidian Secret Storage. Use Save to replace or Delete to remove.'
+                    : 'Stored in Obsidian Secret Storage (not saved in your vault). Enter your API key and click Save.'
+            );
+
+        const secret = new SecretComponent(this.app, apiSetting.controlEl);
+        apiKeyInput = secret;
+        apiSetting.components.push(secret);
+        secret.onChange((value) => {
+            pendingApiKey = value.trim();
+        });
+
+        apiSetting
             .addButton((button) => {
                 button.setButtonText('Save')
                     .setCta()
                     .onClick(async () => {
                         try {
-                            this.plugin.settings.apiKey = pendingApiKey;
-                            await this.plugin.saveSettings();
+                            if (!pendingApiKey) {
+                                if (this.plugin.getApiKey()) {
+                                    new Notice('API key unchanged');
+                                } else {
+                                    new Notice('Enter an API key first');
+                                }
+                                return;
+                            }
+                            await this.plugin.setApiKey(pendingApiKey);
+                            pendingApiKey = '';
+                            apiKeyInput?.setValue('');
                             new Notice('Archivist API key saved');
+                            this.display();
                         } catch (e) {
                             const message = e instanceof Error ? e.message : 'Unknown error';
                             new Notice(`Failed to save API key: ${message}`);
@@ -57,11 +70,15 @@ export class ArchivistSettingTab extends PluginSettingTab {
                     .setWarning()
                     .onClick(async () => {
                         try {
+                            if (!this.plugin.getApiKey()) {
+                                new Notice('No API key stored');
+                                return;
+                            }
                             pendingApiKey = '';
-                            this.plugin.settings.apiKey = '';
-                            await this.plugin.saveSettings();
+                            await this.plugin.clearApiKey();
                             apiKeyInput?.setValue('');
                             new Notice('Archivist API key deleted');
+                            this.display();
                         } catch (e) {
                             const message = e instanceof Error ? e.message : 'Unknown error';
                             new Notice(`Failed to delete API key: ${message}`);

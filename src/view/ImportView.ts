@@ -53,9 +53,10 @@ export default class ImportView extends ItemView {
     }
 
     async refreshCampaigns() {
-        if (!this.plugin.settings.apiKey) return;
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey) return;
         try {
-            const data = await listCampaigns({ apiKey: this.plugin.settings.apiKey });
+            const data = await listCampaigns({ apiKey });
             this.campaigns = data?.data || [];
             this.selectedCampaignId = this.campaigns[0]?.id ?? null;
             this.render();
@@ -65,12 +66,13 @@ export default class ImportView extends ItemView {
     }
 
     async createNewCampaign() {
-        if (!this.plugin.settings.apiKey || this.isCreatingCampaign) return;
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey || this.isCreatingCampaign) return;
         const title = this.app.vault.getName();
         this.isCreatingCampaign = true;
         this.render();
         try {
-            const created = await createCampaign({ apiKey: this.plugin.settings.apiKey }, title);
+            const created = await createCampaign({ apiKey }, title);
             // refresh list and select created
             await this.refreshCampaigns();
             this.selectedCampaignId = created.id;
@@ -114,10 +116,10 @@ export default class ImportView extends ItemView {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
 
-        new Setting(container).setName('Archivist importer').setHeading();
+        new Setting(container).setName('Import overview').setHeading();
 
         const banner = container.createEl('div');
-        if (!this.plugin.settings.apiKey) {
+        if (!this.plugin.getApiKey()) {
             banner.setText('API key missing. Open settings to configure your archivist API key');
             return;
         }
@@ -275,6 +277,8 @@ export default class ImportView extends ItemView {
     async importSelected() {
         const selected = this.rows.filter(r => r.selected);
         if (!this.selectedCampaignId || selected.length === 0) return;
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey) return;
 
         // Reset link tracking for this run
         this.createdRecords.clear();
@@ -284,7 +288,7 @@ export default class ImportView extends ItemView {
         this.importProgress = { current: 0, total: selected.length };
         this.render();
 
-        const cfg = { apiKey: this.plugin.settings.apiKey };
+        const cfg = { apiKey };
 
         for (let i = 0; i < selected.length; i++) {
             const row = selected[i];

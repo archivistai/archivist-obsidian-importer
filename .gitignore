@@ -1,4 +1,4 @@
 node_modules/
-*.js
-*.js.map
+main.js
+main.js.map
 .DS_Store

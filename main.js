@@ -2,9 +2,7 @@
 
 var obsidian = require('obsidian');
 
-const DEFAULT_SETTINGS = {
-    apiKey: ''
-};
+const DEFAULT_SETTINGS = {};
 class ArchivistSettingTab extends obsidian.PluginSettingTab {
     constructor(app, plugin) {
         super(app, plugin);
@@ -13,29 +11,40 @@ class ArchivistSettingTab extends obsidian.PluginSettingTab {
     display() {
         const { containerEl } = this;
         containerEl.empty();
-        new obsidian.Setting(containerEl).setName('Configuration').setHeading();
-        let pendingApiKey = this.plugin.settings.apiKey;
+        let pendingApiKey = '';
         let apiKeyInput = null;
-        new obsidian.Setting(containerEl)
+        const hasStoredKey = !!this.plugin.getApiKey();
+        const apiSetting = new obsidian.Setting(containerEl)
             .setName('API key')
-            .setDesc('Your archivist API key (stored locally in this vault)')
-            .addText((text) => {
-            apiKeyInput = text;
-            text.inputEl.type = 'password';
-            text.setPlaceholder('Enter your API key')
-                .setValue(this.plugin.settings.apiKey)
-                .onChange((value) => {
-                pendingApiKey = value.trim();
-            });
-        })
+            .setDesc(hasStoredKey
+            ? 'API key stored in Obsidian Secret Storage. Use Save to replace or Delete to remove.'
+            : 'Stored in Obsidian Secret Storage (not saved in your vault). Enter your API key and click Save.');
+        const secret = new obsidian.SecretComponent(this.app, apiSetting.controlEl);
+        apiKeyInput = secret;
+        apiSetting.components.push(secret);
+        secret.onChange((value) => {
+            pendingApiKey = value.trim();
+        });
+        apiSetting
             .addButton((button) => {
             button.setButtonText('Save')
                 .setCta()
                 .onClick(async () => {
                 try {
-                    this.plugin.settings.apiKey = pendingApiKey;
-                    await this.plugin.saveSettings();
+                    if (!pendingApiKey) {
+                        if (this.plugin.getApiKey()) {
+                            new obsidian.Notice('API key unchanged');
+                        }
+                        else {
+                            new obsidian.Notice('Enter an API key first');
+                        }
+                        return;
+                    }
+                    await this.plugin.setApiKey(pendingApiKey);
+                    pendingApiKey = '';
+                    apiKeyInput === null || apiKeyInput === void 0 ? void 0 : apiKeyInput.setValue('');
                     new obsidian.Notice('Archivist API key saved');
+                    this.display();
                 }
                 catch (e) {
                     const message = e instanceof Error ? e.message : 'Unknown error';
@@ -48,11 +57,15 @@ class ArchivistSettingTab extends obsidian.PluginSettingTab {
                 .setWarning()
                 .onClick(async () => {
                 try {
+                    if (!this.plugin.getApiKey()) {
+                        new obsidian.Notice('No API key stored');
+                        return;
+                    }
                     pendingApiKey = '';
-                    this.plugin.settings.apiKey = '';
-                    await this.plugin.saveSettings();
+                    await this.plugin.clearApiKey();
                     apiKeyInput === null || apiKeyInput === void 0 ? void 0 : apiKeyInput.setValue('');
                     new obsidian.Notice('Archivist API key deleted');
+                    this.display();
                 }
                 catch (e) {
                     const message = e instanceof Error ? e.message : 'Unknown error';
@@ -21739,10 +21752,11 @@ class ImportView extends obsidian.ItemView {
     }
     async refreshCampaigns() {
         var _a, _b;
-        if (!this.plugin.settings.apiKey)
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey)
             return;
         try {
-            const data = await listCampaigns({ apiKey: this.plugin.settings.apiKey });
+            const data = await listCampaigns({ apiKey });
             this.campaigns = (data === null || data === void 0 ? void 0 : data.data) || [];
             this.selectedCampaignId = (_b = (_a = this.campaigns[0]) === null || _a === void 0 ? void 0 : _a.id) !== null && _b !== void 0 ? _b : null;
             this.render();
@@ -21752,13 +21766,14 @@ class ImportView extends obsidian.ItemView {
         }
     }
     async createNewCampaign() {
-        if (!this.plugin.settings.apiKey || this.isCreatingCampaign)
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey || this.isCreatingCampaign)
             return;
         const title = this.app.vault.getName();
         this.isCreatingCampaign = true;
         this.render();
         try {
-            const created = await createCampaign({ apiKey: this.plugin.settings.apiKey }, title);
+            const created = await createCampaign({ apiKey }, title);
             // refresh list and select created
             await this.refreshCampaigns();
             this.selectedCampaignId = created.id;
@@ -21801,9 +21816,9 @@ class ImportView extends obsidian.ItemView {
     render() {
         const container = this.containerEl.children[1];
         container.empty();
-        new obsidian.Setting(container).setName('Archivist importer').setHeading();
+        new obsidian.Setting(container).setName('Import overview').setHeading();
         const banner = container.createEl('div');
-        if (!this.plugin.settings.apiKey) {
+        if (!this.plugin.getApiKey()) {
             banner.setText('API key missing. Open settings to configure your archivist API key');
             return;
         }
@@ -21952,13 +21967,16 @@ class ImportView extends obsidian.ItemView {
         const selected = this.rows.filter(r => r.selected);
         if (!this.selectedCampaignId || selected.length === 0)
             return;
+        const apiKey = this.plugin.getApiKey();
+        if (!apiKey)
+            return;
         // Reset link tracking for this run
         this.createdRecords.clear();
         this.pendingLinks = [];
         this.isImporting = true;
         this.importProgress = { current: 0, total: selected.length };
         this.render();
-        const cfg = { apiKey: this.plugin.settings.apiKey };
+        const cfg = { apiKey };
         for (let i = 0; i < selected.length; i++) {
             const row = selected[i];
             this.importProgress.current = i;
@@ -22111,6 +22129,10 @@ function getErrorMessage(e) {
 }
 
 class ArchivistImporterPlugin extends obsidian.Plugin {
+    constructor() {
+        super(...arguments);
+        this.apiKeySecretId = 'archivist-importer-api-key';
+    }
     onload() {
         void this.onloadAsync();
     }
@@ -22153,10 +22175,38 @@ class ArchivistImporterPlugin extends obsidian.Plugin {
     async loadSettings() {
         const data = await this.loadData();
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data !== null && data !== void 0 ? data : {});
+        await this.migrateLegacyApiKey();
     }
     async saveSettings() {
         await this.saveData(this.settings);
         this.refreshImportViews();
+    }
+    getApiKey() {
+        const raw = this.app.secretStorage.getSecret(this.apiKeySecretId);
+        if (!raw)
+            return null;
+        const trimmed = raw.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+    async setApiKey(value) {
+        const trimmed = value.trim();
+        this.app.secretStorage.setSecret(this.apiKeySecretId, trimmed);
+        await this.saveSettings();
+    }
+    async clearApiKey() {
+        this.app.secretStorage.setSecret(this.apiKeySecretId, '');
+        await this.saveSettings();
+    }
+    async migrateLegacyApiKey() {
+        var _a;
+        const legacy = (_a = this.settings.apiKey) === null || _a === void 0 ? void 0 : _a.trim();
+        if (!legacy)
+            return;
+        if (!this.getApiKey()) {
+            this.app.secretStorage.setSecret(this.apiKeySecretId, legacy);
+        }
+        delete this.settings.apiKey;
+        await this.saveData(this.settings);
     }
     refreshImportViews() {
         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_ARCHIVIST);

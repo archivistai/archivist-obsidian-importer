@@ -2,7 +2,7 @@
     "id": "archivist-importer",
     "name": "Archivist Importer",
     "version": "0.1.3",
-    "minAppVersion": "1.5.0",
+    "minAppVersion": "1.11.4",
     "description": "Import selected vault files into Archivist campaigns.",
     "author": "Archivist AI",
     "authorUrl": "https://myarchivist.ai",

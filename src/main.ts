@@ -4,6 +4,7 @@ import ImportView, { VIEW_TYPE_ARCHIVIST } from './view/ImportView';
 
 export default class ArchivistImporterPlugin extends Plugin {
     settings!: ArchivistSettings;
+    private readonly apiKeySecretId = 'archivist-importer-api-key';
 
     onload(): void {
         void this.onloadAsync();
@@ -57,11 +58,40 @@ export default class ArchivistImporterPlugin extends Plugin {
     async loadSettings(): Promise<void> {
         const data = await this.loadData() as Partial<ArchivistSettings> | null;
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+        await this.migrateLegacyApiKey();
     }
 
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
         this.refreshImportViews();
+    }
+
+    getApiKey(): string | null {
+        const raw = this.app.secretStorage.getSecret(this.apiKeySecretId);
+        if (!raw) return null;
+        const trimmed = raw.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+    async setApiKey(value: string): Promise<void> {
+        const trimmed = value.trim();
+        this.app.secretStorage.setSecret(this.apiKeySecretId, trimmed);
+        await this.saveSettings();
+    }
+
+    async clearApiKey(): Promise<void> {
+        this.app.secretStorage.setSecret(this.apiKeySecretId, '');
+        await this.saveSettings();
+    }
+
+    private async migrateLegacyApiKey(): Promise<void> {
+        const legacy = this.settings.apiKey?.trim();
+        if (!legacy) return;
+        if (!this.getApiKey()) {
+            this.app.secretStorage.setSecret(this.apiKeySecretId, legacy);
+        }
+        delete this.settings.apiKey;
+        await this.saveData(this.settings);
     }
 
     private refreshImportViews(): void {
