@@ -4,7 +4,6 @@ import ImportView, { VIEW_TYPE_ARCHIVIST } from './view/ImportView';
 
 export default class ArchivistImporterPlugin extends Plugin {
     settings!: ArchivistSettings;
-    private readonly apiKeySecretId = 'archivist-importer-api-key';
 
     onload(): void {
         void this.onloadAsync();
@@ -67,30 +66,26 @@ export default class ArchivistImporterPlugin extends Plugin {
     }
 
     getApiKey(): string | null {
-        const raw = this.app.secretStorage.getSecret(this.apiKeySecretId);
-        if (!raw) return null;
+        const secretId = this.settings.apiKey?.trim();
+        if (!secretId) return null;
+        const raw = this.app.secretStorage.getSecret(secretId);
+        if (raw === null) return null;
         const trimmed = raw.trim();
         return trimmed.length > 0 ? trimmed : null;
     }
 
-    async setApiKey(value: string): Promise<void> {
-        const trimmed = value.trim();
-        this.app.secretStorage.setSecret(this.apiKeySecretId, trimmed);
-        await this.saveSettings();
-    }
-
-    async clearApiKey(): Promise<void> {
-        this.app.secretStorage.setSecret(this.apiKeySecretId, '');
-        await this.saveSettings();
-    }
-
     private async migrateLegacyApiKey(): Promise<void> {
-        const legacy = this.settings.apiKey?.trim();
-        if (!legacy) return;
-        if (!this.getApiKey()) {
-            this.app.secretStorage.setSecret(this.apiKeySecretId, legacy);
+        const legacyValue = this.settings.apiKey?.trim();
+        if (!legacyValue) return;
+        const existing = this.app.secretStorage.getSecret(legacyValue);
+        if (existing !== null) return;
+
+        const defaultSecretId = 'archivist-importer-api-key';
+        const current = this.app.secretStorage.getSecret(defaultSecretId);
+        if (current === null) {
+            this.app.secretStorage.setSecret(defaultSecretId, legacyValue);
         }
-        delete this.settings.apiKey;
+        this.settings.apiKey = defaultSecretId;
         await this.saveData(this.settings);
     }
 

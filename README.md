@@ -11,7 +11,7 @@ Import selected Obsidian vault files into your Archivist campaigns.
 5. Click Options for BRAT.
 6. Click Add Beta Plugin.
 7. Paste https://github.com/archivistai/archivist-obsidian-importer and confirm.
-8. **Configure API Key:** Go to Settings → Archivist Importer and enter your Archivist API key.
+8. **Configure API Key:** Go to Settings → Archivist Importer and select or create your Archivist API key in Secret Storage.
 9. **Use the plugin:** Click the upload icon in the left ribbon, or use Command Palette (Cmd/Ctrl + P) → "Open import view".
 
 ## Quick Copy Script
@@ -63,7 +63,7 @@ For submission steps, follow Obsidian’s docs to create a GitHub release with m
   - Links: only for imported characters/items/locations/factions, per explicit references detected in the selected notes.
 - Where it is sent: `https://api.myarchivist.ai` using your `x-api-key` header.
 - No third-party analytics or tracking.
-- How to disable: Remove API key in settings (Delete) and/or disable the plugin. To remove local data, delete `.obsidian/plugins/archivist-importer/` in your vault.
+- How to disable: Clear the API key selection in settings and/or disable the plugin. To remove local data, delete `.obsidian/plugins/archivist-importer/` in your vault.
 
 ## Release checklist
 
