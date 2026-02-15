@@ -1,4 +1,4 @@
-# Archivist Obsidian Importer
+# Archivist Importer
 
 Import selected Obsidian vault files into your Archivist campaigns.
 
