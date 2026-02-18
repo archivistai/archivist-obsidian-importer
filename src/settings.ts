@@ -23,7 +23,7 @@ export class ArchivistSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('API key')
-            .setDesc('Select a secret from Obsidian Secret Storage')
+            .setDesc('Select a secret from Obsidian secret storage')
             .addComponent((el) => new SecretComponent(this.app, el)
                 .setValue(this.plugin.settings.apiKey)
                 .onChange((value) => {
