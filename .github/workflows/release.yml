@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Validate release tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PACKAGE_VERSION="$(node -pe "require('./package.json').version")"
+          MANIFEST_VERSION="$(node -pe "require('./manifest.json').version")"
+          if [ "$TAG" != "$PACKAGE_VERSION" ] || [ "$TAG" != "$MANIFEST_VERSION" ]; then
+            echo "Tag must exactly match package.json and manifest.json version."
+            echo "tag=$TAG package=$PACKAGE_VERSION manifest=$MANIFEST_VERSION"
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            manifest.json
+            main.js
+            styles.css

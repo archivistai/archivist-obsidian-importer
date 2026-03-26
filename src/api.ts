@@ -6,6 +6,9 @@ export interface ApiConfig {
 }
 
 const API_BASE_URL = 'https://api.myarchivist.ai';
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRY_ATTEMPTS = 3;
+const MAX_RETRY_DELAY_MS = 10_000;
 
 type ApiRequestInit = Omit<RequestUrlParam, 'url' | 'headers'> & {
     headers?: Record<string, string>;
@@ -24,29 +27,70 @@ function getResponseBody(res: RequestUrlResponse): unknown {
     return undefined;
 }
 
+function getHeaderValue(res: RequestUrlResponse, name: string): string | null {
+    const headers = res.headers as Record<string, string> | undefined;
+    if (!headers) return null;
+
+    for (const [key, value] of Object.entries(headers)) {
+        if (key.toLowerCase() === name.toLowerCase()) {
+            return value;
+        }
+    }
+
+    return null;
+}
+
+function getRetryDelayMs(res: RequestUrlResponse, attempt: number): number {
+    const retryAfter = getHeaderValue(res, 'Retry-After');
+    if (retryAfter) {
+        const seconds = Number.parseInt(retryAfter, 10);
+        if (Number.isFinite(seconds) && seconds >= 0) {
+            return Math.min(seconds * 1000, MAX_RETRY_DELAY_MS);
+        }
+
+        const retryAt = Date.parse(retryAfter);
+        if (!Number.isNaN(retryAt)) {
+            return Math.min(Math.max(0, retryAt - Date.now()), MAX_RETRY_DELAY_MS);
+        }
+    }
+
+    return Math.min(1000 * (2 ** attempt), MAX_RETRY_DELAY_MS);
+}
+
+async function sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
 async function apiRequest<T>(config: ApiConfig, path: string, init: ApiRequestInit = {}): Promise<T> {
     const url = `${API_BASE_URL}${path}`;
-    const res = await requestUrl({
-        url,
-        method: init.method ?? 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': config.apiKey,
-            ...(init.headers ?? {})
-        },
-        body: init.body,
-        contentType: init.contentType,
-        throw: false
-    });
+    for (let attempt = 0; ; attempt += 1) {
+        const res = await requestUrl({
+            url,
+            method: init.method ?? 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': config.apiKey,
+                ...(init.headers ?? {})
+            },
+            body: init.body,
+            contentType: init.contentType,
+            throw: false
+        });
 
-    if (res.status < 200 || res.status >= 300) {
+        if (res.status >= 200 && res.status < 300) {
+            const body = getResponseBody(res);
+            return body as T;
+        }
+
+        if (attempt < MAX_RETRY_ATTEMPTS && RETRYABLE_STATUS_CODES.has(res.status)) {
+            await sleep(getRetryDelayMs(res, attempt));
+            continue;
+        }
+
         const body = getResponseBody(res);
         const suffix = typeof body === 'string' ? body : JSON.stringify(body ?? '');
         throw new Error(`${res.status} - ${suffix}`);
     }
-
-    const body = getResponseBody(res);
-    return body as T;
 }
 
 export async function listCampaigns(config: ApiConfig): Promise<{ data: Campaign[]; total?: number }> {
@@ -111,17 +155,4 @@ export async function createJournalEntry(config: ApiConfig, payload: {
     folder_id?: string;
 }) {
     return apiRequest<{ id?: string }>(config, `/v1/journals`, { method: 'POST', body: JSON.stringify(payload) });
-}
-
-export async function createCampaignLink(config: ApiConfig, campaignId: string, payload: {
-    from_id: string;
-    from_type: 'Character' | 'Item' | 'Location' | 'Faction';
-    to_id: string;
-    to_type: 'Character' | 'Item' | 'Location' | 'Faction';
-    alias: string;
-}) {
-    return apiRequest<{ id?: string }>(config, `/v1/campaigns/${encodeURIComponent(campaignId)}/links`, {
-        method: 'POST',
-        body: JSON.stringify({ ...payload, campaign_id: campaignId })
-    });
 }

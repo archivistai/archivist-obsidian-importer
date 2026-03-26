@@ -1,23 +1,113 @@
 import { ItemView, Notice, ProgressBarComponent, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import type { Campaign, DocumentKind, ImportRowState } from '../types';
 import type ArchivistImporterPlugin from '../main';
-import { listCampaigns, createCampaign, createCharacter, createFaction, createItem, createLocation, createJournalEntry, createCampaignLink } from '../api';
-import { splitContentIntoChunks } from '../chunker';
+import { listCampaigns, createCampaign, createCharacter, createFaction, createItem, createLocation, createJournalEntry } from '../api';
+import {
+    MAX_COMPENDIUM_DESCRIPTION_CHARS,
+    isCompendiumDescriptionTooLarge,
+    splitContentIntoChunks,
+    validateJournalChunk
+} from '../chunker';
 import { sanitizeMarkdown } from '../markdownCleaner';
 
 export const VIEW_TYPE_ARCHIVIST = 'archivist-importer-view';
 
-// Extract wiki links and preserve both target title and alias label
-function extractWikiLinks(md: string): Array<{ target: string; alias: string }> {
-    const result: Array<{ target: string; alias: string }> = [];
-    const regex = /!?\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g; // [[target|alias]] or [[target]]
-    let m: RegExpExecArray | null;
-    while ((m = regex.exec(md)) !== null) {
-        const target = (m[1] || '').trim();
-        const alias = (m[2] || m[1] || '').trim();
-        if (target) result.push({ target, alias });
+type VaultLinkIndex = {
+    basenamesByPath: Map<string, string>;
+    pathsByBasename: Map<string, string[]>;
+};
+
+type LinkResolution =
+    | { kind: 'link'; target: string }
+    | { kind: 'plain'; text: string; warning?: string };
+
+function stripObsidianSubpath(target: string): string {
+    const hashIndex = target.indexOf('#');
+    const caretIndex = target.indexOf('^');
+    const cutIndexes = [hashIndex, caretIndex].filter((value) => value >= 0);
+    const cutIndex = cutIndexes.length > 0 ? Math.min(...cutIndexes) : -1;
+    return (cutIndex >= 0 ? target.slice(0, cutIndex) : target).trim();
+}
+
+function basenameFromTarget(target: string): string {
+    const trimmed = stripObsidianSubpath(target).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const basename = trimmed.split('/').filter(Boolean).pop() ?? trimmed;
+    return basename.replace(/\.md$/i, '').trim();
+}
+
+function normalizeLookupPath(target: string): string {
+    return stripObsidianSubpath(target)
+        .replace(/\\/g, '/')
+        .replace(/^\/+|\/+$/g, '')
+        .replace(/\.md$/i, '')
+        .toLowerCase();
+}
+
+function buildVaultLinkIndex(files: TFile[]): VaultLinkIndex {
+    const basenamesByPath = new Map<string, string>();
+    const pathsByBasename = new Map<string, string[]>();
+
+    for (const file of files) {
+        basenamesByPath.set(normalizeLookupPath(file.path), file.basename);
+
+        const basenameKey = file.basename.toLowerCase();
+        const existing = pathsByBasename.get(basenameKey) ?? [];
+        existing.push(file.path);
+        pathsByBasename.set(basenameKey, existing);
     }
-    return result;
+
+    return { basenamesByPath, pathsByBasename };
+}
+
+function resolveWikiTarget(target: string, index: VaultLinkIndex, sourcePath: string): LinkResolution {
+    const canonicalTarget = stripObsidianSubpath(target);
+    const basename = basenameFromTarget(canonicalTarget);
+    if (!basename) {
+        return { kind: 'plain', text: target.trim() };
+    }
+
+    if (/[\\/]/.test(canonicalTarget)) {
+        return {
+            kind: 'link',
+            target: index.basenamesByPath.get(normalizeLookupPath(canonicalTarget)) ?? basename
+        };
+    }
+
+    const matchingPaths = index.pathsByBasename.get(basename.toLowerCase()) ?? [];
+    if (matchingPaths.length > 1) {
+        return {
+            kind: 'plain',
+            text: basename,
+            warning: `Ambiguous bare wikilink [[${basename}]] in ${sourcePath}; flattened to plain text.`
+        };
+    }
+
+    return { kind: 'link', target: basename };
+}
+
+function normalizeWikiLinks(md: string, index: VaultLinkIndex, sourcePath: string): { markdown: string; warnings: string[] } {
+    const warnings = new Set<string>();
+    const markdown = md.replace(/!?\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, rawTargetValue, rawAliasValue) => {
+        if (match.startsWith('!')) return '';
+
+        const rawTarget = String(rawTargetValue ?? '').trim();
+        const rawAlias = String(rawAliasValue ?? '').trim();
+        const fallbackText = rawAlias || basenameFromTarget(rawTarget) || rawTarget;
+        const resolved = resolveWikiTarget(rawTarget, index, sourcePath);
+
+        if (resolved.kind === 'plain') {
+            if (resolved.warning) warnings.add(resolved.warning);
+            return rawAlias || resolved.text || fallbackText;
+        }
+
+        if (rawAlias && rawAlias !== resolved.target) {
+            return `[[${resolved.target}|${rawAlias}]]`;
+        }
+
+        return `[[${resolved.target}]]`;
+    });
+
+    return { markdown, warnings: Array.from(warnings) };
 }
 
 export default class ImportView extends ItemView {
@@ -28,15 +118,7 @@ export default class ImportView extends ItemView {
     lastClickedIndex: number = -1;
     isImporting: boolean = false;
     importProgress: { current: number; total: number } = { current: 0, total: 0 };
-    isCreatingLinks: boolean = false;
-    linkProgress: { current: number; total: number } = { current: 0, total: 0 };
     isCreatingCampaign: boolean = false;
-
-    // Link tracking: map vault title -> { id, type }
-    private createdRecords: Map<string, { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }> = new Map();
-    // Pending links to materialize after import
-    private pendingLinks: Array<{ fromTitle: string; fromType: 'Character' | 'Item' | 'Location' | 'Faction'; links: Array<{ target: string; alias: string }> }> = [];
-    private readonly linkableTypes = ['Character', 'Item', 'Location', 'Faction'] as const;
 
     constructor(leaf: WorkspaceLeaf, plugin: ArchivistImporterPlugin) {
         super(leaf);
@@ -113,7 +195,7 @@ export default class ImportView extends ItemView {
     }
 
     render() {
-        const container = this.containerEl.children[1] as HTMLElement;
+        const container = this.contentEl;
         container.empty();
 
         new Setting(container).setName('Import overview').setHeading();
@@ -252,17 +334,6 @@ export default class ImportView extends ItemView {
                 ? (this.importProgress.current / this.importProgress.total)
                 : 0;
             progressBar.setValue(value);
-        } else if (this.isCreatingLinks) {
-            const progressContainer = importSection.createEl('div', { cls: 'archivist-progress-container' });
-            progressContainer.createEl('div', {
-                text: `Creating links ${this.linkProgress.current} of ${this.linkProgress.total}...`,
-                cls: 'archivist-progress-text'
-            });
-            const progressBar = new ProgressBarComponent(progressContainer);
-            const value = this.linkProgress.total > 0
-                ? (this.linkProgress.current / this.linkProgress.total)
-                : 0;
-            progressBar.setValue(value);
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
@@ -280,15 +351,13 @@ export default class ImportView extends ItemView {
         const apiKey = this.plugin.getApiKey();
         if (!apiKey) return;
 
-        // Reset link tracking for this run
-        this.createdRecords.clear();
-        this.pendingLinks = [];
-
         this.isImporting = true;
         this.importProgress = { current: 0, total: selected.length };
         this.render();
 
         const cfg = { apiKey };
+        const linkIndex = buildVaultLinkIndex(this.app.vault.getMarkdownFiles());
+        let warningCount = 0;
 
         for (let i = 0; i < selected.length; i++) {
             const row = selected[i];
@@ -297,39 +366,47 @@ export default class ImportView extends ItemView {
 
             try {
                 row.status = 'uploading';
+                row.errorMessage = undefined;
                 const file = this.app.vault.getAbstractFileByPath(row.filePath);
                 if (!(file instanceof TFile)) throw new Error('File not found');
                 const raw = await this.app.vault.read(file);
+                const normalizedLinks = normalizeWikiLinks(raw, linkIndex, row.filePath);
+                const content = await sanitizeMarkdown(normalizedLinks.markdown);
 
-                // Extract links before cleaning
-                const extracted = extractWikiLinks(raw);
-                const content = await sanitizeMarkdown(raw);
+                if (normalizedLinks.warnings.length > 0) {
+                    warningCount += normalizedLinks.warnings.length;
+                    const preview = normalizedLinks.warnings.slice(0, 2).join(' ');
+                    const suffix = normalizedLinks.warnings.length > 2
+                        ? ` (+${normalizedLinks.warnings.length - 2} more)`
+                        : '';
+                    new Notice(preview + suffix, 8000);
+                }
 
                 if (row.kind === 'Player Character' || row.kind === 'NPC') {
-                    const created = await createCharacter(cfg, {
+                    if (isCompendiumDescriptionTooLarge(content)) {
+                        throw new Error(`Description exceeds ${MAX_COMPENDIUM_DESCRIPTION_CHARS.toLocaleString()} characters after cleanup.`);
+                    }
+                    await createCharacter(cfg, {
                         campaign_id: this.selectedCampaignId,
                         character_name: row.title,
                         description: content,
                         type: row.kind === 'Player Character' ? 'PC' : 'NPC'
                     });
-                    const fromType = 'Character';
-                    this.createdRecords.set(row.title, { id: created.id, type: fromType });
-                    if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
                 } else if (row.kind === 'Item') {
-                    const created = await createItem(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
-                    const fromType = 'Item';
-                    this.createdRecords.set(row.title, { id: created.id, type: fromType });
-                    if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
+                    if (isCompendiumDescriptionTooLarge(content)) {
+                        throw new Error(`Description exceeds ${MAX_COMPENDIUM_DESCRIPTION_CHARS.toLocaleString()} characters after cleanup.`);
+                    }
+                    await createItem(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                 } else if (row.kind === 'Location') {
-                    const created = await createLocation(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
-                    const fromType = 'Location';
-                    this.createdRecords.set(row.title, { id: created.id, type: fromType });
-                    if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
+                    if (isCompendiumDescriptionTooLarge(content)) {
+                        throw new Error(`Description exceeds ${MAX_COMPENDIUM_DESCRIPTION_CHARS.toLocaleString()} characters after cleanup.`);
+                    }
+                    await createLocation(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                 } else if (row.kind === 'Faction') {
-                    const created = await createFaction(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
-                    const fromType = 'Faction';
-                    this.createdRecords.set(row.title, { id: created.id, type: fromType });
-                    if (extracted.length) this.pendingLinks.push({ fromTitle: row.title, fromType, links: extracted });
+                    if (isCompendiumDescriptionTooLarge(content)) {
+                        throw new Error(`Description exceeds ${MAX_COMPENDIUM_DESCRIPTION_CHARS.toLocaleString()} characters after cleanup.`);
+                    }
+                    await createFaction(cfg, { campaign_id: this.selectedCampaignId, name: row.title, description: content });
                 } else if (row.kind === 'Journal Entry') {
                     const chunks = splitContentIntoChunks(row.title, content);
                     if (chunks.length === 0) {
@@ -342,6 +419,10 @@ export default class ImportView extends ItemView {
                     } else {
                         for (let idx = 0; idx < chunks.length; idx++) {
                             const ch = chunks[idx];
+                            const chunkError = validateJournalChunk(ch.chunk);
+                            if (chunkError) {
+                                throw new Error(`${ch.name}: ${chunkError}.`);
+                            }
                             await createJournalEntry(cfg, {
                                 world_id: this.selectedCampaignId,
                                 title: ch.name,
@@ -356,75 +437,15 @@ export default class ImportView extends ItemView {
                 row.errorMessage = getErrorMessage(e);
                 new Notice(`Failed importing ${row.title}: ${row.errorMessage}`);
             }
+
+            this.importProgress.current = i + 1;
+            this.render();
         }
 
-        this.importProgress.current = selected.length;
         this.isImporting = false;
-
-        // After import, materialize links for in-cohort non-journal references (deduplicated)
-        try {
-            if (this.pendingLinks.length && this.selectedCampaignId) {
-                // Calculate total potential links
-                const linksToCreate: Array<{ from: { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }; targetRec: { id: string; type: 'Character' | 'Item' | 'Location' | 'Faction' }; alias: string }> = [];
-                const createdLinks = new Set<string>(); // Track "fromId:toId" to dedupe
-
-                for (const entry of this.pendingLinks) {
-                    const from = this.createdRecords.get(entry.fromTitle);
-                    if (!from) continue;
-
-                    const seenTargets = new Set<string>();
-                    for (const { target, alias } of entry.links) {
-                        const trimmedTarget = target.trim();
-                        const trimmedAlias = (alias || '').trim();
-                        if (!trimmedTarget || seenTargets.has(trimmedTarget)) continue;
-                        seenTargets.add(trimmedTarget);
-
-                        const targetRec = this.createdRecords.get(trimmedTarget);
-                        if (!targetRec) continue;
-
-                        const linkable = (t: string): t is (typeof this.linkableTypes)[number] =>
-                            (this.linkableTypes as readonly string[]).includes(t);
-                        if (!linkable(from.type) || !linkable(targetRec.type)) continue;
-                        if (from.id === targetRec.id) continue;
-
-                        const key = `${from.id}:${targetRec.id}`;
-                        if (!createdLinks.has(key)) {
-                            linksToCreate.push({ from, targetRec, alias: trimmedAlias || trimmedTarget });
-                            createdLinks.add(key);
-                        }
-                    }
-                }
-
-                if (linksToCreate.length > 0) {
-                    this.isCreatingLinks = true;
-                    this.linkProgress = { current: 0, total: linksToCreate.length };
-                    this.render();
-
-                    for (let i = 0; i < linksToCreate.length; i++) {
-                        const { from, targetRec, alias } = linksToCreate[i];
-                        this.linkProgress.current = i;
-                        this.render();
-
-                        await createCampaignLink(cfg, this.selectedCampaignId, {
-                            from_id: from.id,
-                            from_type: from.type,
-                            to_id: targetRec.id,
-                            to_type: targetRec.type,
-                            alias
-                        });
-                    }
-
-                    this.linkProgress.current = linksToCreate.length;
-                    this.isCreatingLinks = false;
-                }
-            }
-        } catch (e: unknown) {
-            this.isCreatingLinks = false;
-            new Notice(`Link creation failed: ${getErrorMessage(e)}`);
-        }
-
         this.render();
-        new Notice(`Import complete! ${selected.length} file(s) processed.`);
+        const warningSuffix = warningCount > 0 ? ` ${warningCount} wikilink warning(s).` : '';
+        new Notice(`Import complete! ${selected.length} file(s) processed.${warningSuffix}`);
     }
 }
 

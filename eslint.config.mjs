@@ -6,7 +6,7 @@ import obsidianmd from "eslint-plugin-obsidianmd";
 export default defineConfig([
     // Ignore build artifacts
     {
-        ignores: ["main.js", "main.js.map", "node_modules/**", "dist/**"],
+        ignores: ["main.js", "main.js.map", "node_modules/**", "dist/**", "scripts/**"],
     },
     ...obsidianmd.configs.recommended,
     {

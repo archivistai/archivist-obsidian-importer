@@ -1,0 +1,29 @@
+---
+description: Release checklist for the Archivist Obsidian plugin
+globs:
+alwaysApply: false
+---
+
+When the task is to create, prepare, or finalize a release for `archivist-obsidian-importer`, do not stop at code changes.
+
+Required workflow:
+
+1. Re-check the current official Obsidian release guidance online before finalizing the release:
+   - `https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin`
+   - `https://docs.obsidian.md/oo/plugin`
+   - `https://docs.obsidian.md/plugins/guides/load-time`
+   - `https://github.com/obsidianmd/obsidian-sample-plugin`
+2. Follow this repo's local release guide in `RELEASING.md`.
+3. Keep release metadata aligned:
+   - `package.json` version must match `manifest.json`.
+   - `versions.json` must get an entry for every release, mapping the plugin version to `minAppVersion`.
+   - `CHANGELOG.md` must include the release.
+4. Run the release validation commands and report their results:
+   - `pnpm run lint`
+   - `pnpm run build`
+5. Verify required release assets exist and are current:
+   - `manifest.json`
+   - `main.js`
+   - `styles.css`
+6. For GitHub releases, the tag must exactly match the plugin version and must not use a `v` prefix.
+7. If the environment cannot push tags or publish GitHub releases, explicitly say which manual GitHub steps remain.

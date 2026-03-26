@@ -97,8 +97,6 @@ export function prefilterMarkdown(md: string): string {
         .replace(/%%[\s\S]*?%%/g, '')
         .replace(/^[ \t]*[A-Za-z0-9_\-\s]+::.*$/gm, '')
         .replace(/!\[\[[^\]]+\]\]/g, '')
-        .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, '$2')
-        .replace(/\[\[([^\]]+)\]\]/g, '$1')
         .replace(/^>\s*\[![^\]]+\]\s*/gm, '> ')
         .replace(/!\[[^\]]*\]\([^)]\)/g, '');
 }
