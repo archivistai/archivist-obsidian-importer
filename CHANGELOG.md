@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 - 2026-04-01
+
+- Preserve focus and cursor position in the importer title search field while filtering results.
+- Update installation instructions to use Obsidian Community Plugins instead of the legacy BRAT beta flow.
+
 ## 0.1.5 - 2026-03-31
 
 - Fix importer button enablement so it reacts correctly to campaign selection and row selection, including on initial load.

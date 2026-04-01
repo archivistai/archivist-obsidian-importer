@@ -285,6 +285,11 @@ export default class ImportView extends ItemView {
 
     render() {
         const container = this.contentEl;
+        const activeElement = globalThis.document.activeElement;
+        const shouldRestoreSearchFocus = activeElement instanceof HTMLInputElement
+            && activeElement.classList.contains('archivist-search-input');
+        const searchSelectionStart = shouldRestoreSearchFocus ? activeElement.selectionStart : null;
+        const searchSelectionEnd = shouldRestoreSearchFocus ? activeElement.selectionEnd : null;
         container.empty();
 
         new Setting(container).setName('Import overview').setHeading();
@@ -360,6 +365,14 @@ export default class ImportView extends ItemView {
             this.lastClickedIndex = -1;
             this.render();
         };
+        if (shouldRestoreSearchFocus) {
+            globalThis.setTimeout(() => {
+                searchInput.focus();
+                if (searchSelectionStart !== null && searchSelectionEnd !== null) {
+                    searchInput.setSelectionRange(searchSelectionStart, searchSelectionEnd);
+                }
+            }, 0);
+        }
 
         const table = filesSection.createEl('table', { cls: 'archivist-table' });
         const thead = table.createEl('thead');

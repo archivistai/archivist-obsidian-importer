@@ -37,13 +37,13 @@ GitHub Actions in this repo:
 - `.github/workflows/ci.yml` runs lint and build on pushes and pull requests.
 - `.github/workflows/release.yml` runs lint/build on version tags and creates a GitHub release with the required assets.
 
-## 0.1.5 release status
+## 0.1.6 release status
 
-Completed locally on 2026-03-31:
+Completed locally on 2026-04-01:
 
-- Source changes implemented for importer UX and selection safety.
-- `package.json` and `manifest.json` bumped to `0.1.5`.
-- `versions.json` updated with `0.1.5` and backfilled for `0.1.1` and `0.1.2`.
+- Source changes implemented for search focus retention and Community Plugins installation docs.
+- `package.json` and `manifest.json` bumped to `0.1.6`.
+- `versions.json` updated with `0.1.6`.
 - `CHANGELOG.md` updated.
 - `pnpm run release:check` completed.
 - CI and release workflows added.
@@ -51,6 +51,6 @@ Completed locally on 2026-03-31:
 Manual GitHub steps still required:
 
 - Push commit(s).
-- Push tag `0.1.5`.
+- Push tag `0.1.6`.
 - Confirm the GitHub Actions release workflow publishes the release assets.
 - If this plugin is being newly listed publicly, open the initial PR to `obsidianmd/obsidian-releases`.

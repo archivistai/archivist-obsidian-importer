@@ -2,21 +2,18 @@
 
 Import selected Obsidian vault files into your Archivist campaigns.
 
-## Installation (BRAT)
+## Installation
 
-1. Open https://obsidian.md/plugins?id=obsidian42-brat# and click Install.
-2. Your browser will ask to open Obsidian; approve it to open the BRAT install window.
-3. In Obsidian, click Install for BRAT.
-4. Click Enable when it appears.
-5. Click Options for BRAT.
-6. Click Add Beta Plugin.
-7. Paste https://github.com/archivistai/archivist-obsidian-importer and confirm.
-8. **Configure API Key:** Go to Settings → Archivist Importer and select or create your Archivist API key in Secret Storage.
-9. **Use the plugin:** Click the upload icon in the left ribbon, or use Command Palette (Cmd/Ctrl + P) → "Open import view".
+1. In Obsidian, open Settings → Community plugins.
+2. Turn off Safe mode if prompted.
+3. Click Browse and search for `Archivist Importer`.
+4. Click Install, then Enable.
+5. **Configure API Key:** Go to Settings → Archivist Importer and select or create your Archivist API key in Secret Storage.
+6. **Use the plugin:** Click the upload icon in the left ribbon, or use Command Palette (Cmd/Ctrl + P) → `Open import view`.
 
 ## Quick Copy Script
 
-Development only: use this if you want to build and copy the plugin manually; for normal usage, follow the BRAT install steps in the Installation section. Run `npm install` once in this repository so the Rollup build has its dependencies. The script assumes you run it from the plugin repo folder (where `package.json` lives) so that `npm run build` can find the project.
+Development only: use this if you want to build and copy the plugin manually; for normal usage, install it from Obsidian Community Plugins. Run `npm install` once in this repository so the Rollup build has its dependencies. The script assumes you run it from the plugin repo folder (where `package.json` lives) so that `npm run build` can find the project.
 
 ```bash
 #!/bin/bash
