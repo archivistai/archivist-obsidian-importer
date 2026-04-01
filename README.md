@@ -79,6 +79,7 @@ See `RELEASING.md` for the current release checklist and automation notes.
 
 References:
 - Submit your plugin: https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin
-- Official plugin checklist: https://docs.obsidian.md/oo/plugin
-- Load-time guide: https://docs.obsidian.md/plugins/guides/load-time
+- Submission requirements: https://docs.obsidian.md/Plugins/Releasing/Submission%2Brequirements%2Bfor%2Bplugins
+- Plugin guidelines: https://docs.obsidian.md/Plugins/Releasing/Plugin%2Bguidelines
+- Load-time guide: https://docs.obsidian.md/Plugins/Guides/Optimizing+plugin+load+time
 - Sample plugin: https://github.com/obsidianmd/obsidian-sample-plugin

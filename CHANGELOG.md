@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 - 2026-03-31
+
+- Fix importer button enablement so it reacts correctly to campaign selection and row selection, including on initial load.
+- Require selected rows to have an explicit document type instead of defaulting uploads to `Journal Entry`.
+- Add case-insensitive title search, shift-click range selection, and sortable table columns in the importer view.
+
 ## 0.1.4 - 2026-03-26
 
 - Align importer behavior with current Archivist API record creation and link syncing.

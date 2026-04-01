@@ -21,6 +21,9 @@ type LinkResolution =
     | { kind: 'link'; target: string }
     | { kind: 'plain'; text: string; warning?: string };
 
+type SortKey = 'title' | 'filePath' | 'size' | 'kind';
+type SortDirection = 'asc' | 'desc';
+
 function stripObsidianSubpath(target: string): string {
     const hashIndex = target.indexOf('#');
     const caretIndex = target.indexOf('^');
@@ -115,6 +118,9 @@ export default class ImportView extends ItemView {
     campaigns: Campaign[] = [];
     selectedCampaignId: string | null = null;
     rows: ImportRowState[] = [];
+    searchQuery: string = '';
+    sortKey: SortKey | null = null;
+    sortDirection: SortDirection = 'asc';
     lastClickedIndex: number = -1;
     isImporting: boolean = false;
     importProgress: { current: number; total: number } = { current: 0, total: 0 };
@@ -138,9 +144,12 @@ export default class ImportView extends ItemView {
         const apiKey = this.plugin.getApiKey();
         if (!apiKey) return;
         try {
+            const previousSelectedCampaignId = this.selectedCampaignId;
             const data = await listCampaigns({ apiKey });
             this.campaigns = data?.data || [];
-            this.selectedCampaignId = this.campaigns[0]?.id ?? null;
+            this.selectedCampaignId = previousSelectedCampaignId && this.campaigns.some((campaign) => campaign.id === previousSelectedCampaignId)
+                ? previousSelectedCampaignId
+                : this.campaigns[0]?.id ?? null;
             this.render();
         } catch (e: unknown) {
             new Notice(`Failed to load campaigns: ${getErrorMessage(e)}`);
@@ -173,7 +182,7 @@ export default class ImportView extends ItemView {
             title: f.basename,
             size: f.stat.size,
             selected: false,
-            kind: 'Journal Entry'
+            kind: null
         }));
         this.lastClickedIndex = -1;
         this.render();
@@ -192,6 +201,86 @@ export default class ImportView extends ItemView {
             changed = true;
         }
         if (changed) this.render();
+    }
+
+    hasSelectedCampaign(): boolean {
+        return !!this.selectedCampaignId && this.campaigns.some((campaign) => campaign.id === this.selectedCampaignId);
+    }
+
+    hasSelectedRows(): boolean {
+        return this.rows.some((row) => row.selected);
+    }
+
+    selectedRowsHaveAssignedKinds(): boolean {
+        const selectedRows = this.rows.filter((row) => row.selected);
+        return selectedRows.length > 0 && selectedRows.every((row) => !!row.kind);
+    }
+
+    getSortValue(row: ImportRowState, sortKey: SortKey): string | number {
+        switch (sortKey) {
+            case 'title':
+                return row.title;
+            case 'filePath':
+                return row.filePath;
+            case 'size':
+                return row.size;
+            case 'kind':
+                return row.kind ?? '';
+        }
+    }
+
+    getSortedRows(rows: Array<{ row: ImportRowState; index: number }>): Array<{ row: ImportRowState; index: number }> {
+        if (!this.sortKey) return rows;
+
+        const sortKey = this.sortKey;
+        const direction = this.sortDirection === 'asc' ? 1 : -1;
+
+        return [...rows].sort((a, b) => {
+            let comparison = 0;
+
+            if (sortKey === 'size') {
+                comparison = Number(this.getSortValue(a.row, sortKey)) - Number(this.getSortValue(b.row, sortKey));
+            } else {
+                const left = this.getSortValue(a.row, sortKey);
+                const right = this.getSortValue(b.row, sortKey);
+                comparison = String(left).localeCompare(String(right), undefined, { sensitivity: 'base' });
+            }
+
+            if (comparison === 0) return a.index - b.index;
+            return comparison * direction;
+        });
+    }
+
+    getFilteredRows(): Array<{ row: ImportRowState; index: number }> {
+        const query = this.searchQuery.trim().toLowerCase();
+        const filteredRows = this.rows
+            .map((row, index) => ({ row, index }))
+            .filter(({ row }) => !query || row.title.toLowerCase().includes(query));
+        return this.getSortedRows(filteredRows);
+    }
+
+    toggleSort(sortKey: SortKey): void {
+        if (this.sortKey === sortKey) {
+            this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            this.sortKey = sortKey;
+            this.sortDirection = 'asc';
+        }
+        this.lastClickedIndex = -1;
+        this.render();
+    }
+
+    getSortIndicator(sortKey: SortKey): string {
+        if (this.sortKey !== sortKey) return '';
+        return this.sortDirection === 'asc' ? ' ↑' : ' ↓';
+    }
+
+    canImport(): boolean {
+        return !this.isImporting
+            && !this.isCreatingCampaign
+            && this.hasSelectedCampaign()
+            && this.hasSelectedRows()
+            && this.selectedRowsHaveAssignedKinds();
     }
 
     render() {
@@ -250,11 +339,27 @@ export default class ImportView extends ItemView {
             });
         };
 
-        const campaignSelected = !!this.selectedCampaignId;
+        const campaignSelected = this.hasSelectedCampaign();
+        const selectionEnabled = campaignSelected && !this.isCreatingCampaign;
+        const filteredRows = this.getFilteredRows();
 
         // Files table
         const filesSection = container.createEl('div', { cls: 'archivist-section' });
         new Setting(filesSection).setName('Vault files').setHeading();
+
+        const searchInput = filesSection.createEl('input', {
+            cls: 'archivist-search-input',
+            attr: {
+                type: 'search',
+                placeholder: 'Search document titles'
+            }
+        });
+        searchInput.value = this.searchQuery;
+        searchInput.oninput = () => {
+            this.searchQuery = searchInput.value;
+            this.lastClickedIndex = -1;
+            this.render();
+        };
 
         const table = filesSection.createEl('table', { cls: 'archivist-table' });
         const thead = table.createEl('thead');
@@ -264,42 +369,60 @@ export default class ImportView extends ItemView {
         const thSelect = headRow.createEl('th');
         const headerCb = thSelect.createEl('input');
         headerCb.type = 'checkbox';
-        headerCb.disabled = !campaignSelected;
-        headerCb.checked = this.rows.length > 0 && this.rows.every(r => r.selected);
-        headerCb.indeterminate = this.rows.some(r => r.selected) && !this.rows.every(r => r.selected);
+        headerCb.disabled = !selectionEnabled || filteredRows.length === 0;
+        headerCb.checked = filteredRows.length > 0 && filteredRows.every(({ row }) => row.selected);
+        headerCb.indeterminate = filteredRows.some(({ row }) => row.selected) && !filteredRows.every(({ row }) => row.selected);
         headerCb.onchange = () => {
             const newState = headerCb.checked;
-            this.rows.forEach(r => r.selected = newState);
+            filteredRows.forEach(({ row }) => {
+                row.selected = newState;
+            });
             this.render();
         };
 
-        ['Title', 'Path', 'Size', 'Type'].forEach((h) => headRow.createEl('th', { text: h }));
+        const sortableColumns: Array<{ label: string; key: SortKey }> = [
+            { label: 'Title', key: 'title' },
+            { label: 'Path', key: 'filePath' },
+            { label: 'Size', key: 'size' },
+            { label: 'Type', key: 'kind' }
+        ];
+        for (const column of sortableColumns) {
+            const th = headRow.createEl('th');
+            const button = th.createEl('button', {
+                text: `${column.label}${this.getSortIndicator(column.key)}`,
+                cls: 'archivist-sort-btn',
+                attr: { type: 'button' }
+            });
+            button.onclick = () => {
+                this.toggleSort(column.key);
+            };
+        }
 
         const tbody = table.createEl('tbody');
 
-        for (let i = 0; i < this.rows.length; i++) {
-            const row = this.rows[i];
+        for (let visibleIndex = 0; visibleIndex < filteredRows.length; visibleIndex++) {
+            const { row } = filteredRows[visibleIndex];
             const tr = tbody.createEl('tr');
 
             // select
             const tdSel = tr.createEl('td');
             const cb = tdSel.createEl('input');
             cb.type = 'checkbox';
-            cb.disabled = !campaignSelected;
+            cb.disabled = !selectionEnabled;
             cb.checked = row.selected;
             cb.onclick = (e: MouseEvent) => {
                 if (e.shiftKey && this.lastClickedIndex !== -1) {
-                    const start = Math.min(this.lastClickedIndex, i);
-                    const end = Math.max(this.lastClickedIndex, i);
+                    const start = Math.min(this.lastClickedIndex, visibleIndex);
+                    const end = Math.max(this.lastClickedIndex, visibleIndex);
                     const newState = cb.checked;
                     for (let j = start; j <= end; j++) {
-                        this.rows[j].selected = newState;
+                        filteredRows[j].row.selected = newState;
                     }
-                    this.render();
                 } else {
                     row.selected = cb.checked;
-                    this.lastClickedIndex = i;
                 }
+                this.lastClickedIndex = visibleIndex;
+                this.render();
             };
 
             tr.createEl('td', { text: row.title });
@@ -309,15 +432,28 @@ export default class ImportView extends ItemView {
             // type
             const tdType = tr.createEl('td');
             const typeSel = tdType.createEl('select');
+            const placeholderOpt = typeSel.createEl('option', { text: 'Select type', value: '' });
+            placeholderOpt.disabled = true;
+            placeholderOpt.selected = row.kind === null;
             const kinds: DocumentKind[] = ['Player Character', 'NPC', 'Item', 'Location', 'Faction', 'Journal Entry'];
             for (const k of kinds) {
                 const opt = typeSel.createEl('option', { text: k, value: k });
                 if (row.kind === k) opt.selected = true;
             }
-            typeSel.disabled = !campaignSelected;
+            typeSel.disabled = !selectionEnabled;
             typeSel.onchange = () => {
-                row.kind = typeSel.value as DocumentKind;
+                row.kind = typeSel.value ? typeSel.value as DocumentKind : null;
+                this.render();
             };
+        }
+
+        if (filteredRows.length === 0) {
+            const emptyRow = tbody.createEl('tr');
+            const emptyCell = emptyRow.createEl('td', {
+                text: 'No documents match your search.',
+                attr: { colspan: '5' }
+            });
+            emptyCell.addClass('archivist-no-results');
         }
 
         // Import button and progress
@@ -336,7 +472,7 @@ export default class ImportView extends ItemView {
             progressBar.setValue(value);
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
-            importBtn.disabled = !campaignSelected || this.rows.every(r => !r.selected);
+            importBtn.disabled = !this.canImport();
             importBtn.onclick = () => {
                 void this.importSelected().catch(() => {
                     // Error handling is done in importSelected
@@ -347,7 +483,7 @@ export default class ImportView extends ItemView {
 
     async importSelected() {
         const selected = this.rows.filter(r => r.selected);
-        if (!this.selectedCampaignId || selected.length === 0) return;
+        if (!this.selectedCampaignId || selected.length === 0 || selected.some((row) => !row.kind)) return;
         const apiKey = this.plugin.getApiKey();
         if (!apiKey) return;
 

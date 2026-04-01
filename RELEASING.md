@@ -1,12 +1,13 @@
 # Releasing Archivist Importer
 
-This checklist was reviewed against the official Obsidian developer documentation on 2026-03-26.
+This checklist was reviewed against the official Obsidian developer documentation on 2026-03-31.
 
 Official sources:
 
 - https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin
-- https://docs.obsidian.md/oo/plugin
-- https://docs.obsidian.md/plugins/guides/load-time
+- https://docs.obsidian.md/Plugins/Releasing/Submission%2Brequirements%2Bfor%2Bplugins
+- https://docs.obsidian.md/Plugins/Releasing/Plugin%2Bguidelines
+- https://docs.obsidian.md/Plugins/Guides/Optimizing+plugin+load+time
 - https://github.com/obsidianmd/obsidian-sample-plugin
 
 ## Official release checklist
@@ -36,22 +37,20 @@ GitHub Actions in this repo:
 - `.github/workflows/ci.yml` runs lint and build on pushes and pull requests.
 - `.github/workflows/release.yml` runs lint/build on version tags and creates a GitHub release with the required assets.
 
-## 0.1.4 release status
+## 0.1.5 release status
 
-Completed locally on 2026-03-26:
+Completed locally on 2026-03-31:
 
-- Source changes implemented.
-- `package.json` and `manifest.json` bumped to `0.1.4`.
-- `versions.json` updated with `0.1.4`.
-- README disclosures updated to match the current importer behavior.
+- Source changes implemented for importer UX and selection safety.
+- `package.json` and `manifest.json` bumped to `0.1.5`.
+- `versions.json` updated with `0.1.5` and backfilled for `0.1.1` and `0.1.2`.
 - `CHANGELOG.md` updated.
-- Obsidian ESLint run completed.
-- Production build completed.
+- `pnpm run release:check` completed.
 - CI and release workflows added.
 
 Manual GitHub steps still required:
 
 - Push commit(s).
-- Push tag `0.1.4`.
+- Push tag `0.1.5`.
 - Confirm the GitHub Actions release workflow publishes the release assets.
 - If this plugin is being newly listed publicly, open the initial PR to `obsidianmd/obsidian-releases`.

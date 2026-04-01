@@ -13,7 +13,7 @@ export interface ImportRowState {
     filePath: string;
     title: string;
     size: number;
-    kind: DocumentKind;
+    kind: DocumentKind | null;
     selected: boolean;
     status?: 'queued' | 'uploading' | 'done' | 'error';
     errorMessage?: string;
