@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.7 - 2026-06-03
+
+- Fix importer freezes and UI lockups in large vaults by paginating the file table (100 rows per page), debouncing the search input, yielding to the main thread every 10 files during import, and skipping the full AST markdown parse for notes over 200 000 characters.
+- Add per-row import status display (uploading / done / error with truncated error text and full tooltip) so import progress is visible in the table rather than only in the progress bar.
+- Add `typecheck` (`tsc --noEmit`) and `validate:release` scripts; expand `release:check` to run lint, typecheck, build, and release validation in order.
+- Add `scripts/validate-release.js` to assert that `package.json`, `manifest.json`, `versions.json`, and `CHANGELOG.md` all agree on the current version before a release.
+- Add Vitest and 15 tests for `markdownCleaner.ts` covering the fast path, full AST cleanup, and all Obsidian-specific transformations.
+- Update CI workflow to run typecheck and tests before the build step.
+- Update release workflow to run typecheck, tests, and release validation before publishing GitHub release assets.
+
 ## 0.1.6 - 2026-04-01
 
 - Preserve focus and cursor position in the importer title search field while filtering results.
