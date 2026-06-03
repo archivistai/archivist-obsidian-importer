@@ -12,6 +12,11 @@ import { sanitizeMarkdown } from '../markdownCleaner';
 
 export const VIEW_TYPE_ARCHIVIST = 'archivist-importer-view';
 
+const PAGE_SIZE = 100;
+const SEARCH_DEBOUNCE_MS = 150;
+const IMPORT_RENDER_INTERVAL_MS = 250;
+const IMPORT_YIELD_INTERVAL = 10;
+
 type VaultLinkIndex = {
     basenamesByPath: Map<string, string>;
     pathsByBasename: Map<string, string[]>;
@@ -113,6 +118,10 @@ function normalizeWikiLinks(md: string, index: VaultLinkIndex, sourcePath: strin
     return { markdown, warnings: Array.from(warnings) };
 }
 
+function nextFrame(): Promise<void> {
+    return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+}
+
 export default class ImportView extends ItemView {
     plugin: ArchivistImporterPlugin;
     campaigns: Campaign[] = [];
@@ -125,6 +134,10 @@ export default class ImportView extends ItemView {
     isImporting: boolean = false;
     importProgress: { current: number; total: number } = { current: 0, total: 0 };
     isCreatingCampaign: boolean = false;
+    currentPage: number = 0;
+    private searchDebounceTimer: number | null = null;
+    private progressTextEl: HTMLElement | null = null;
+    private progressBar: ProgressBarComponent | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: ArchivistImporterPlugin) {
         super(leaf);
@@ -138,6 +151,10 @@ export default class ImportView extends ItemView {
         this.render();
         await this.refreshCampaigns();
         this.loadVaultFiles();
+    }
+
+    async onClose(): Promise<void> {
+        this.clearSearchDebounce();
     }
 
     async refreshCampaigns() {
@@ -164,7 +181,6 @@ export default class ImportView extends ItemView {
         this.render();
         try {
             const created = await createCampaign({ apiKey }, title);
-            // refresh list and select created
             await this.refreshCampaigns();
             this.selectedCampaignId = created.id;
         } catch (e: unknown) {
@@ -185,6 +201,7 @@ export default class ImportView extends ItemView {
             kind: null
         }));
         this.lastClickedIndex = -1;
+        this.currentPage = 0;
         this.render();
     }
 
@@ -255,7 +272,7 @@ export default class ImportView extends ItemView {
         const query = this.searchQuery.trim().toLowerCase();
         const filteredRows = this.rows
             .map((row, index) => ({ row, index }))
-            .filter(({ row }) => !query || row.title.toLowerCase().includes(query));
+            .filter(({ row }) => !query || row.title.toLowerCase().includes(query) || row.filePath.toLowerCase().includes(query));
         return this.getSortedRows(filteredRows);
     }
 
@@ -267,6 +284,7 @@ export default class ImportView extends ItemView {
             this.sortDirection = 'asc';
         }
         this.lastClickedIndex = -1;
+        this.currentPage = 0;
         this.render();
     }
 
@@ -283,6 +301,42 @@ export default class ImportView extends ItemView {
             && this.selectedRowsHaveAssignedKinds();
     }
 
+    private clearSearchDebounce(): void {
+        if (this.searchDebounceTimer !== null) {
+            globalThis.clearTimeout(this.searchDebounceTimer);
+            this.searchDebounceTimer = null;
+        }
+    }
+
+    private scheduleSearchRender(value: string): void {
+        this.searchQuery = value;
+        this.lastClickedIndex = -1;
+        this.currentPage = 0;
+        this.clearSearchDebounce();
+        this.searchDebounceTimer = globalThis.setTimeout(() => {
+            this.searchDebounceTimer = null;
+            this.render();
+        }, SEARCH_DEBOUNCE_MS);
+    }
+
+    private clampCurrentPage(totalRows: number): void {
+        const maxPage = Math.max(0, Math.ceil(totalRows / PAGE_SIZE) - 1);
+        if (this.currentPage > maxPage) this.currentPage = maxPage;
+        if (this.currentPage < 0) this.currentPage = 0;
+    }
+
+    private updateProgressDisplay(): void {
+        if (this.progressTextEl) {
+            this.progressTextEl.setText(`Importing ${this.importProgress.current} of ${this.importProgress.total}...`);
+        }
+        if (this.progressBar) {
+            const value = this.importProgress.total > 0
+                ? (this.importProgress.current / this.importProgress.total)
+                : 0;
+            this.progressBar.setValue(value);
+        }
+    }
+
     render() {
         const container = this.contentEl;
         const activeElement = globalThis.document.activeElement;
@@ -291,6 +345,8 @@ export default class ImportView extends ItemView {
         const searchSelectionStart = shouldRestoreSearchFocus ? activeElement.selectionStart : null;
         const searchSelectionEnd = shouldRestoreSearchFocus ? activeElement.selectionEnd : null;
         container.empty();
+        this.progressTextEl = null;
+        this.progressBar = null;
 
         new Setting(container).setName('Import overview').setHeading();
 
@@ -300,7 +356,6 @@ export default class ImportView extends ItemView {
             return;
         }
 
-        // Campaign controls
         const campSection = container.createEl('div', { cls: 'archivist-section' });
         new Setting(campSection).setName('Campaign').setHeading();
 
@@ -345,25 +400,32 @@ export default class ImportView extends ItemView {
         };
 
         const campaignSelected = this.hasSelectedCampaign();
-        const selectionEnabled = campaignSelected && !this.isCreatingCampaign;
+        const selectionEnabled = campaignSelected && !this.isCreatingCampaign && !this.isImporting;
         const filteredRows = this.getFilteredRows();
+        this.clampCurrentPage(filteredRows.length);
+        const selectedCount = this.rows.filter((row) => row.selected).length;
+        const pageStart = this.currentPage * PAGE_SIZE;
+        const pageRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+        const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
 
-        // Files table
         const filesSection = container.createEl('div', { cls: 'archivist-section' });
         new Setting(filesSection).setName('Vault files').setHeading();
+
+        filesSection.createEl('div', {
+            text: `${filteredRows.length.toLocaleString()} matching file(s), ${selectedCount.toLocaleString()} selected. Showing ${pageRows.length.toLocaleString()} per page.`,
+            cls: 'archivist-file-summary'
+        });
 
         const searchInput = filesSection.createEl('input', {
             cls: 'archivist-search-input',
             attr: {
                 type: 'search',
-                placeholder: 'Search document titles'
+                placeholder: 'Search document titles or paths'
             }
         });
         searchInput.value = this.searchQuery;
         searchInput.oninput = () => {
-            this.searchQuery = searchInput.value;
-            this.lastClickedIndex = -1;
-            this.render();
+            this.scheduleSearchRender(searchInput.value);
         };
         if (shouldRestoreSearchFocus) {
             globalThis.setTimeout(() => {
@@ -374,20 +436,41 @@ export default class ImportView extends ItemView {
             }, 0);
         }
 
+        if (filteredRows.length > PAGE_SIZE) {
+            const pager = filesSection.createEl('div', { cls: 'archivist-pagination' });
+            const prevBtn = pager.createEl('button', { text: 'Previous', cls: 'archivist-page-btn' });
+            prevBtn.disabled = this.currentPage === 0;
+            prevBtn.onclick = () => {
+                this.currentPage -= 1;
+                this.lastClickedIndex = -1;
+                this.render();
+            };
+            pager.createEl('span', {
+                text: `Page ${this.currentPage + 1} of ${pageCount}`,
+                cls: 'archivist-page-label'
+            });
+            const nextBtn = pager.createEl('button', { text: 'Next', cls: 'archivist-page-btn' });
+            nextBtn.disabled = this.currentPage >= pageCount - 1;
+            nextBtn.onclick = () => {
+                this.currentPage += 1;
+                this.lastClickedIndex = -1;
+                this.render();
+            };
+        }
+
         const table = filesSection.createEl('table', { cls: 'archivist-table' });
         const thead = table.createEl('thead');
         const headRow = thead.createEl('tr');
 
-        // Header checkbox for select all
         const thSelect = headRow.createEl('th');
         const headerCb = thSelect.createEl('input');
         headerCb.type = 'checkbox';
-        headerCb.disabled = !selectionEnabled || filteredRows.length === 0;
-        headerCb.checked = filteredRows.length > 0 && filteredRows.every(({ row }) => row.selected);
-        headerCb.indeterminate = filteredRows.some(({ row }) => row.selected) && !filteredRows.every(({ row }) => row.selected);
+        headerCb.disabled = !selectionEnabled || pageRows.length === 0;
+        headerCb.checked = pageRows.length > 0 && pageRows.every(({ row }) => row.selected);
+        headerCb.indeterminate = pageRows.some(({ row }) => row.selected) && !pageRows.every(({ row }) => row.selected);
         headerCb.onchange = () => {
             const newState = headerCb.checked;
-            filteredRows.forEach(({ row }) => {
+            pageRows.forEach(({ row }) => {
                 row.selected = newState;
             });
             this.render();
@@ -413,11 +496,10 @@ export default class ImportView extends ItemView {
 
         const tbody = table.createEl('tbody');
 
-        for (let visibleIndex = 0; visibleIndex < filteredRows.length; visibleIndex++) {
-            const { row } = filteredRows[visibleIndex];
+        for (let visibleIndex = 0; visibleIndex < pageRows.length; visibleIndex++) {
+            const { row } = pageRows[visibleIndex];
             const tr = tbody.createEl('tr');
 
-            // select
             const tdSel = tr.createEl('td');
             const cb = tdSel.createEl('input');
             cb.type = 'checkbox';
@@ -429,7 +511,7 @@ export default class ImportView extends ItemView {
                     const end = Math.max(this.lastClickedIndex, visibleIndex);
                     const newState = cb.checked;
                     for (let j = start; j <= end; j++) {
-                        filteredRows[j].row.selected = newState;
+                        pageRows[j].row.selected = newState;
                     }
                 } else {
                     row.selected = cb.checked;
@@ -442,7 +524,6 @@ export default class ImportView extends ItemView {
             tr.createEl('td', { text: row.filePath });
             tr.createEl('td', { text: `${row.size}` });
 
-            // type
             const tdType = tr.createEl('td');
             const typeSel = tdType.createEl('select');
             const placeholderOpt = typeSel.createEl('option', { text: 'Select type', value: '' });
@@ -469,20 +550,16 @@ export default class ImportView extends ItemView {
             emptyCell.addClass('archivist-no-results');
         }
 
-        // Import button and progress
         const importSection = container.createEl('div', { cls: 'archivist-section' });
 
         if (this.isImporting) {
             const progressContainer = importSection.createEl('div', { cls: 'archivist-progress-container' });
-            progressContainer.createEl('div', {
+            this.progressTextEl = progressContainer.createEl('div', {
                 text: `Importing ${this.importProgress.current} of ${this.importProgress.total}...`,
                 cls: 'archivist-progress-text'
             });
-            const progressBar = new ProgressBarComponent(progressContainer);
-            const value = this.importProgress.total > 0
-                ? (this.importProgress.current / this.importProgress.total)
-                : 0;
-            progressBar.setValue(value);
+            this.progressBar = new ProgressBarComponent(progressContainer);
+            this.updateProgressDisplay();
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !this.canImport();
@@ -507,11 +584,12 @@ export default class ImportView extends ItemView {
         const cfg = { apiKey };
         const linkIndex = buildVaultLinkIndex(this.app.vault.getMarkdownFiles());
         let warningCount = 0;
+        let lastProgressRender = 0;
 
         for (let i = 0; i < selected.length; i++) {
             const row = selected[i];
             this.importProgress.current = i;
-            this.render();
+            this.updateProgressDisplay();
 
             try {
                 row.status = 'uploading';
@@ -559,7 +637,6 @@ export default class ImportView extends ItemView {
                 } else if (row.kind === 'Journal Entry') {
                     const chunks = splitContentIntoChunks(row.title, content);
                     if (chunks.length === 0) {
-                        // Empty file, create one entry
                         await createJournalEntry(cfg, {
                             world_id: this.selectedCampaignId,
                             title: row.title,
@@ -588,7 +665,15 @@ export default class ImportView extends ItemView {
             }
 
             this.importProgress.current = i + 1;
-            this.render();
+            this.updateProgressDisplay();
+            const now = Date.now();
+            if (now - lastProgressRender >= IMPORT_RENDER_INTERVAL_MS) {
+                lastProgressRender = now;
+                this.updateProgressDisplay();
+            }
+            if (i % IMPORT_YIELD_INTERVAL === 0) {
+                await nextFrame();
+            }
         }
 
         this.isImporting = false;
