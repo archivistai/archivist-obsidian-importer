@@ -131,3 +131,21 @@
     background: var(--interactive-accent);
     transition: width 0.3s ease;
 }
+
+.archivist-status-cell {
+    white-space: nowrap;
+    font-size: 0.85em;
+}
+
+.archivist-status-done {
+    color: var(--color-green);
+}
+
+.archivist-status-error {
+    color: var(--color-red);
+    cursor: help;
+}
+
+.archivist-status-uploading {
+    color: var(--text-muted);
+}

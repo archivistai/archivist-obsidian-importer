@@ -313,10 +313,12 @@ export default class ImportView extends ItemView {
         this.lastClickedIndex = -1;
         this.currentPage = 0;
         this.clearSearchDebounce();
+        // Cast needed: @types/node overrides globalThis.setTimeout return type to
+        // NodeJS.Timeout, but Obsidian runs in Electron (browser) where it's always number.
         this.searchDebounceTimer = globalThis.setTimeout(() => {
             this.searchDebounceTimer = null;
             this.render();
-        }, SEARCH_DEBOUNCE_MS);
+        }, SEARCH_DEBOUNCE_MS) as unknown as number;
     }
 
     private clampCurrentPage(totalRows: number): void {
@@ -493,6 +495,7 @@ export default class ImportView extends ItemView {
                 this.toggleSort(column.key);
             };
         }
+        headRow.createEl('th', { text: 'Status' });
 
         const tbody = table.createEl('tbody');
 
@@ -539,13 +542,28 @@ export default class ImportView extends ItemView {
                 row.kind = typeSel.value ? typeSel.value as DocumentKind : null;
                 this.render();
             };
+
+            const tdStatus = tr.createEl('td', { cls: 'archivist-status-cell' });
+            if (row.status === 'uploading') {
+                tdStatus.setText('Uploading…');
+                tdStatus.addClass('archivist-status-uploading');
+            } else if (row.status === 'done') {
+                tdStatus.setText('Done');
+                tdStatus.addClass('archivist-status-done');
+            } else if (row.status === 'error') {
+                const msg = row.errorMessage ?? 'Error';
+                const truncated = msg.length > 40 ? msg.slice(0, 37) + '…' : msg;
+                tdStatus.setText(truncated);
+                tdStatus.addClass('archivist-status-error');
+                if (msg.length > 40) tdStatus.setAttribute('title', msg);
+            }
         }
 
         if (filteredRows.length === 0) {
             const emptyRow = tbody.createEl('tr');
             const emptyCell = emptyRow.createEl('td', {
                 text: 'No documents match your search.',
-                attr: { colspan: '5' }
+                attr: { colspan: '6' }
             });
             emptyCell.addClass('archivist-no-results');
         }
@@ -665,10 +683,11 @@ export default class ImportView extends ItemView {
             }
 
             this.importProgress.current = i + 1;
-            this.updateProgressDisplay();
             const now = Date.now();
             if (now - lastProgressRender >= IMPORT_RENDER_INTERVAL_MS) {
                 lastProgressRender = now;
+                this.render();
+            } else {
                 this.updateProgressDisplay();
             }
             if (i % IMPORT_YIELD_INTERVAL === 0) {
