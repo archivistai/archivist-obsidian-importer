@@ -7,7 +7,10 @@
         "dev": "rollup -c -w",
         "build": "rollup -c",
         "lint": "eslint .",
-        "release:check": "pnpm run lint && pnpm run build",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run",
+        "validate:release": "node scripts/validate-release.js",
+        "release:check": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run validate:release",
         "version": "node ./scripts/version-bump.js"
     },
     "devDependencies": {
@@ -21,7 +24,8 @@
         "rollup-plugin-copy": "^3.5.0",
         "rollup-plugin-typescript2": "^0.36.0",
         "tslib": "^2.6.3",
-        "typescript": "^5.4.5"
+        "typescript": "^5.4.5",
+        "vitest": "^4.1.8"
     },
     "dependencies": {
         "eslint": "^9.39.2",
