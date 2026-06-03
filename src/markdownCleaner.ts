@@ -10,6 +10,8 @@ type AnyNode = { type: string } & UnknownRecord;
 type ParentNode = AnyNode & { children: AnyNode[] };
 type TextNode = AnyNode & { type: 'text'; value: string };
 
+const LARGE_MARKDOWN_FAST_PATH_CHARS = 200_000;
+
 function isParentNode(node: AnyNode): node is ParentNode {
     return Array.isArray((node as UnknownRecord).children);
 }
@@ -98,7 +100,7 @@ export function prefilterMarkdown(md: string): string {
         .replace(/^[ \t]*[A-Za-z0-9_\-\s]+::.*$/gm, '')
         .replace(/!\[\[[^\]]+\]\]/g, '')
         .replace(/^>\s*\[![^\]]+\]\s*/gm, '> ')
-        .replace(/!\[[^\]]*\]\([^)]\)/g, '');
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '');
 }
 
 export async function cleanObsidianMarkdown(md: string): Promise<string> {
@@ -118,5 +120,8 @@ export async function cleanObsidianMarkdown(md: string): Promise<string> {
 
 export async function sanitizeMarkdown(md: string): Promise<string> {
     const pre = prefilterMarkdown(md);
+    if (pre.length > LARGE_MARKDOWN_FAST_PATH_CHARS) {
+        return pre;
+    }
     return await cleanObsidianMarkdown(pre);
 }
