@@ -107,6 +107,12 @@
     cursor: not-allowed;
 }
 
+.archivist-import-hint {
+    margin-top: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
 .archivist-progress-container {
     display: flex;
     flex-direction: column;

@@ -1,6 +1,6 @@
 {
     "name": "archivist-obsidian-importer",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "description": "Obsidian plugin to import selected vault files into Archivist campaigns.",
     "main": "main.js",
     "scripts": {

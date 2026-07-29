@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8 - 2026-07-28
+
+- Show a hint when selected files are missing a document type, explaining why the import button stays disabled.
+
 ## 0.1.7 - 2026-06-03
 
 - Fix importer freezes and UI lockups in large vaults by paginating the file table (100 rows per page), debouncing the search input, yielding to the main thread every 10 files during import, and skipping the full AST markdown parse for notes over 200 000 characters.

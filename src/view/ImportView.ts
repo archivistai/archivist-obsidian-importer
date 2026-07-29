@@ -581,6 +581,12 @@ export default class ImportView extends ItemView {
         } else {
             const importBtn = importSection.createEl('button', { text: 'Import selected', cls: 'archivist-import-btn' });
             importBtn.disabled = !this.canImport();
+            if (this.hasSelectedCampaign() && this.hasSelectedRows() && !this.selectedRowsHaveAssignedKinds()) {
+                importSection.createEl('div', {
+                    text: 'Assign a document type to every selected file before importing.',
+                    cls: 'archivist-import-hint'
+                });
+            }
             importBtn.onclick = () => {
                 void this.importSelected().catch(() => {
                     // Error handling is done in importSelected
